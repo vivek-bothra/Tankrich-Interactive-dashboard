@@ -69,10 +69,38 @@
             <nav class="tabs">
                 <button class="tab active" data-tab="overview">Overview</button>
                 <button class="tab" data-tab="statements">Statements</button>
+                <button class="tab" data-tab="quarterly">Quarterly</button>
                 <button class="tab" data-tab="analysis">Analysis</button>
                 <button class="tab" data-tab="frameworks">Frameworks</button>
+                <button class="tab" data-tab="advanced">Advanced</button>
                 <button class="tab" data-tab="charts">Charts</button>
+                <button class="tab" data-tab="compare" id="compareTab" style="display: none;">Compare</button>
             </nav>
+            
+            <!-- Action Buttons -->
+            <div class="action-buttons">
+                <button id="exportBtn" class="action-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>
+                    Export PDF
+                </button>
+                <button id="printBtn" class="action-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                        <rect x="6" y="14" width="12" height="8"/>
+                    </svg>
+                    Print
+                </button>
+                <label for="compareFileInput" class="action-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 11l3 3L22 4"/>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                    </svg>
+                    Add for Comparison
+                </label>
+                <input type="file" id="compareFileInput" accept=".xlsx" style="display: none;">
+            </div>
 
             <!-- Tab Content -->
             <div class="tab-content">
@@ -211,6 +239,37 @@
                     </div>
                 </div>
 
+                <!-- Quarterly Tab -->
+                <div id="quarterly" class="tab-panel">
+                    <div class="quarterly-container">
+                        <div class="card">
+                            <h3>Quarterly Performance Trends</h3>
+                            <canvas id="quarterlyChart"></canvas>
+                        </div>
+                        
+                        <div class="card">
+                            <h3>Quarterly Data</h3>
+                            <div class="table-wrapper">
+                                <table id="quarterlyTable" class="financial-table">
+                                    <thead></thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        
+                        <div class="quarterly-insights">
+                            <div class="card">
+                                <h3>QoQ Growth</h3>
+                                <div id="qoqGrowth"></div>
+                            </div>
+                            <div class="card">
+                                <h3>YoY Growth</h3>
+                                <div id="yoyGrowth"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Frameworks Tab -->
                 <div id="frameworks" class="tab-panel">
                     <div class="frameworks-container">
@@ -231,6 +290,64 @@
                             <h3>Value Migration Analysis</h3>
                             <div id="valueMigration"></div>
                         </div>
+                        
+                        <!-- Earning Power Box -->
+                        <div class="card framework-card">
+                            <h3>Earning Power Box</h3>
+                            <div id="earningPowerBox"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Frameworks Tab -->
+                <div id="advanced" class="tab-panel">
+                    <div class="frameworks-container">
+                        <!-- CAP Analysis -->
+                        <div class="card framework-card full-width">
+                            <h3>Competitive Advantage Period (CAP)</h3>
+                            <div id="capAnalysis"></div>
+                        </div>
+                        
+                        <!-- Capex Split -->
+                        <div class="card framework-card">
+                            <h3>Maintenance vs Growth Capex</h3>
+                            <div id="capexSplit"></div>
+                        </div>
+                        
+                        <!-- Incremental ROIC -->
+                        <div class="card framework-card">
+                            <h3>Incremental Returns Analysis</h3>
+                            <div id="incrementalROIC"></div>
+                        </div>
+                        
+                        <!-- RM Sensitivity -->
+                        <div class="card framework-card">
+                            <h3>Raw Material Sensitivity</h3>
+                            <div id="rmSensitivity"></div>
+                        </div>
+                        
+                        <!-- Buffett $1 Test -->
+                        <div class="card framework-card">
+                            <h3>Buffett's $1 Test</h3>
+                            <div id="buffettTest"></div>
+                        </div>
+                        
+                        <!-- FLOAT Detection -->
+                        <div class="card framework-card">
+                            <h3>FLOAT Business Detection</h3>
+                            <div id="floatDetection"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Comparison Tab -->
+                <div id="compare" class="tab-panel">
+                    <div id="comparisonContainer">
+                        <div class="comparison-header">
+                            <h2>Company Comparison</h2>
+                            <button id="clearComparison" class="action-btn">Clear All</button>
+                        </div>
+                        <div id="comparisonContent"></div>
                     </div>
                 </div>
 

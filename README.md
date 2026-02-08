@@ -22,12 +22,27 @@ A comprehensive, client-side fundamental analysis tool for equity research. Uplo
 - 🏰 **Moat Analysis** - Competitive advantage indicators
 - 💰 **Capital Allocation** - Management quality grading
 - 📈 **Value Migration** - Business trajectory analysis
+- 📦 **Earning Power Box** - 2x2 growth vs cash matrix
+- ⏳ **CAP Analysis** - Competitive advantage period estimation
+- 🔧 **Capex Split** - Maintenance vs growth capital allocation
+- 📊 **Incremental ROIC** - Returns on new capital deployed
+- 🌾 **RM Sensitivity** - Raw material cost vulnerability
+- 💵 **Buffett's $1 Test** - Capital allocation effectiveness
+- 💰 **FLOAT Detection** - Business model with customer funds
 
 ### Visualizations
 - Revenue & Profit trends
 - Margin evolution
 - Returns analysis (ROE/ROCE)
 - Cash flow breakdown
+- Quarterly performance trends
+- CAP analysis chart
+
+### Additional Features
+- 📊 **Quarterly Analysis** - QoQ and YoY growth trends
+- 🔍 **Comparison Mode** - Compare 2-3 companies side-by-side
+- 🖨️ **Print Support** - Print-optimized layouts
+- 📄 **Export** - Save analysis as PDF
 
 ## 🎯 How to Use
 
@@ -53,8 +68,33 @@ A comprehensive, client-side fundamental analysis tool for equity research. Uplo
 - **Growth Metrics**: Historical CAGRs for revenue and profit
 - **Returns**: Latest year profitability ratios
 
+### How to Use New Features
+
+**Quarterly Analysis:**
+1. Navigate to "Quarterly" tab
+2. View recent quarters' performance
+3. Check QoQ and YoY growth trends
+
+**Comparison Mode:**
+1. Load your first company
+2. Click "Add for Comparison" button
+3. Upload 1-2 more companies' Excel files
+4. Navigate to "Compare" tab to see side-by-side metrics
+5. Use "Clear All" to reset
+
+**Print/Export:**
+- Click "Print" to get print-optimized view
+- Use browser's "Save as PDF" option
+- Export button available for future PDF generation
+
 ### Statements Tab
 Complete financial statements with 10 years of historical data
+
+### Quarterly Tab
+- **Performance Trends**: Quarterly revenue and profit visualization
+- **QoQ Growth**: Quarter-over-quarter growth rates
+- **YoY Growth**: Year-over-year comparisons
+- **Latest 8-10 quarters** of detailed data
 
 ### Analysis Tab
 - **DuPont Analysis**: Understand what drives ROE (margins, efficiency, or leverage)
@@ -65,6 +105,18 @@ Complete financial statements with 10 years of historical data
 - **Moat Detection**: Does the company have sustainable competitive advantages?
 - **Capital Allocation**: How well does management deploy capital?
 - **Value Migration**: Is value flowing to or from this business?
+- **Earning Power Box**: 2x2 matrix positioning (growth vs cash generation)
+
+### Advanced Tab
+- **CAP Analysis**: Competitive advantage period - how long can high returns last?
+- **Capex Split**: Maintenance vs growth capex estimation
+- **Incremental ROIC**: Are new investments creating value?
+- **RM Sensitivity**: Vulnerability to raw material price changes
+- **Buffett's $1 Test**: Is management creating value with retained earnings?
+- **FLOAT Detection**: Does the business benefit from customer funds?
+
+### Compare Tab (appears after adding companies)
+Side-by-side comparison of key metrics across multiple companies
 
 ### Charts Tab
 Interactive visualizations of all key metrics over time

@@ -29,6 +29,7 @@ async function handleFileUpload(event) {
     try {
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data);
+        workbookGlobal = workbook; // Store globally for quarterly analysis
         
         // Parse the Excel file
         companyData = parseExcelData(workbook);
@@ -225,6 +226,22 @@ function calculateAndDisplayMetrics() {
     
     // Value Migration
     displayValueMigration();
+    
+    // New Frameworks
+    displayEarningPowerBox();
+    displayCAPAnalysis();
+    displayCapexSplit();
+    displayIncrementalROIC();
+    displayRMSensitivity();
+    displayBuffettTest();
+    displayFLOATDetection();
+    
+    // Quarterly Analysis
+    try {
+        displayQuarterlyAnalysis();
+    } catch (error) {
+        console.error('Error displaying quarterly analysis:', error);
+    }
 }
 
 // Calculate CAGR
@@ -240,8 +257,9 @@ function calculateCAGR(data, years) {
 }
 
 // Quality Score Calculation (100 points)
-function calculateQualityScore() {
-    const { annual } = companyData;
+function calculateQualityScore(company = null) {
+    const data = company || companyData;
+    const { annual } = data;
     const n = annual.years.length;
     let score = 0;
     const breakdown = {};
@@ -1294,3 +1312,739 @@ function setMetricColor(elementId, value, threshold) {
         el.classList.add('negative');
     }
 }
+
+// ============================================================================
+// COMPARISON MODE
+// ============================================================================
+
+let comparisonCompanies = [];
+
+document.getElementById('compareFileInput').addEventListener('change', async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const parsedData = parseExcelData(workbook);
+        
+        comparisonCompanies.push(parsedData);
+        
+        // Show compare tab
+        document.getElementById('compareTab').style.display = 'block';
+        
+        // Update comparison view
+        displayComparison();
+        
+        alert(`Added ${parsedData.meta.name} for comparison!`);
+    } catch (error) {
+        console.error('Error adding company for comparison:', error);
+        alert('Error parsing file for comparison');
+    }
+});
+
+document.getElementById('clearComparison').addEventListener('click', () => {
+    comparisonCompanies = [];
+    document.getElementById('compareTab').style.display = 'none';
+    document.getElementById('comparisonContent').innerHTML = '<p style="text-align: center; color: var(--text-muted);">No companies added for comparison yet.</p>';
+});
+
+function displayComparison() {
+    if (comparisonCompanies.length === 0) {
+        document.getElementById('comparisonContent').innerHTML = '<p style="text-align: center; color: var(--text-muted);">No companies added for comparison yet.</p>';
+        return;
+    }
+    
+    // Include current company
+    const companies = [companyData, ...comparisonCompanies];
+    
+    const html = companies.map(company => {
+        const n = company.annual.years.length;
+        const salesCAGR5 = calculateCAGR(company.annual.sales, Math.min(5, n-1));
+        const profitCAGR5 = calculateCAGR(company.annual.netProfit, Math.min(5, n-1));
+        
+        const latestEquity = (company.annual.equity[n-1] || 0) + (company.annual.reserves[n-1] || 0);
+        const prevEquity = (company.annual.equity[n-2] || 0) + (company.annual.reserves[n-2] || 0);
+        const avgEquity = (latestEquity + prevEquity) / 2;
+        const roe = avgEquity > 0 ? ((company.annual.netProfit[n-1] || 0) / avgEquity) * 100 : null;
+        
+        const latestSales = company.annual.sales[n-1];
+        const latestProfit = company.annual.netProfit[n-1];
+        const npm = latestSales > 0 ? (latestProfit / latestSales) * 100 : null;
+        
+        const debtToEquity = latestEquity > 0 ? (company.annual.borrowings[n-1] || 0) / latestEquity : null;
+        
+        return `
+            <div class="company-comparison-card">
+                <h3>${company.meta.name}</h3>
+                <div class="comparison-metrics">
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">Market Cap</span>
+                        <span class="comparison-metric-value">${formatLargeNumber(company.meta.marketCap)} Cr</span>
+                    </div>
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">Sales CAGR (5Y)</span>
+                        <span class="comparison-metric-value">${formatPercent(salesCAGR5)}</span>
+                    </div>
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">Profit CAGR (5Y)</span>
+                        <span class="comparison-metric-value">${formatPercent(profitCAGR5)}</span>
+                    </div>
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">ROE</span>
+                        <span class="comparison-metric-value">${formatPercent(roe)}</span>
+                    </div>
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">Net Margin</span>
+                        <span class="comparison-metric-value">${formatPercent(npm)}</span>
+                    </div>
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">Debt/Equity</span>
+                        <span class="comparison-metric-value">${debtToEquity ? debtToEquity.toFixed(2) + 'x' : 'N/A'}</span>
+                    </div>
+                    <div class="comparison-metric">
+                        <span class="comparison-metric-label">Quality Score</span>
+                        <span class="comparison-metric-value">${calculateQualityScore(company).total}/100</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    document.getElementById('comparisonContent').innerHTML = html;
+}
+
+// ============================================================================
+// QUARTERLY ANALYSIS
+// ============================================================================
+
+function displayQuarterlyAnalysis() {
+    const { annual } = companyData;
+    
+    // Parse quarterly data from Data Sheet
+    const dataSheet = XLSX.utils.sheet_to_json(workbookGlobal.Sheets['Data Sheet'], { header: 1, defval: null });
+    
+    const qtrDates = (dataSheet[40] || []).slice(4).filter(d => d);
+    if (qtrDates.length === 0) {
+        document.getElementById('quarterlyTable').innerHTML = '<p style="padding: 2rem; text-align: center; color: var(--text-muted);">No quarterly data available</p>';
+        return;
+    }
+    
+    const quarters = qtrDates.map(d => {
+        const date = new Date(d);
+        const month = date.getMonth();
+        const year = date.getFullYear();
+        const qtr = Math.floor(month / 3) + 1;
+        return `Q${qtr} FY${year}`;
+    });
+    
+    const qtrSales = extractRow(dataSheet, 41);
+    const qtrExpenses = extractRow(dataSheet, 42);
+    const qtrProfit = extractRow(dataSheet, 48);
+    const qtrOpProfit = extractRow(dataSheet, 49);
+    
+    // Display table
+    const table = document.getElementById('quarterlyTable');
+    const thead = table.querySelector('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Quarter</th>
+            ${quarters.map(q => `<th>${q}</th>`).join('')}
+        </tr>
+    `;
+    
+    const tbody = table.querySelector('tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td>Sales</td>
+            ${qtrSales.slice(0, quarters.length).map(v => `<td>${formatNumber(v)}</td>`).join('')}
+        </tr>
+        <tr>
+            <td>Operating Profit</td>
+            ${qtrOpProfit.slice(0, quarters.length).map(v => `<td>${formatNumber(v)}</td>`).join('')}
+        </tr>
+        <tr class="total-row">
+            <td>Net Profit</td>
+            ${qtrProfit.slice(0, quarters.length).map(v => `<td>${formatNumber(v)}</td>`).join('')}
+        </tr>
+    `;
+    
+    // QoQ Growth
+    const qoqSalesGrowth = [];
+    for (let i = 1; i < qtrSales.length && i < quarters.length; i++) {
+        if (qtrSales[i-1] && qtrSales[i]) {
+            qoqSalesGrowth.push(((qtrSales[i] - qtrSales[i-1]) / qtrSales[i-1]) * 100);
+        } else {
+            qoqSalesGrowth.push(null);
+        }
+    }
+    
+    document.getElementById('qoqGrowth').innerHTML = `
+        <div class="dupont-factor">
+            <span class="factor-name">Latest QoQ Sales Growth</span>
+            <span class="factor-value">${formatPercent(qoqSalesGrowth[qoqSalesGrowth.length - 1])}</span>
+        </div>
+        <div class="dupont-factor">
+            <span class="factor-name">Avg QoQ Growth (4Q)</span>
+            <span class="factor-value">${formatPercent(qoqSalesGrowth.slice(-4).reduce((a,b) => a+b, 0) / 4)}</span>
+        </div>
+    `;
+    
+    // YoY Growth
+    if (qtrSales.length >= 5) {
+        const yoySales = ((qtrSales[qtrSales.length-1] - qtrSales[qtrSales.length-5]) / qtrSales[qtrSales.length-5]) * 100;
+        const yoyProfit = ((qtrProfit[qtrProfit.length-1] - qtrProfit[qtrProfit.length-5]) / qtrProfit[qtrProfit.length-5]) * 100;
+        
+        document.getElementById('yoyGrowth').innerHTML = `
+            <div class="dupont-factor">
+                <span class="factor-name">YoY Sales Growth</span>
+                <span class="factor-value">${formatPercent(yoySales)}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">YoY Profit Growth</span>
+                <span class="factor-value">${formatPercent(yoyProfit)}</span>
+            </div>
+        `;
+    }
+    
+    // Quarterly Chart
+    const ctx = document.getElementById('quarterlyChart');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: quarters,
+            datasets: [
+                {
+                    label: 'Quarterly Sales',
+                    data: qtrSales.slice(0, quarters.length),
+                    borderColor: '#4fc3f7',
+                    backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                    tension: 0.3
+                },
+                {
+                    label: 'Quarterly Profit',
+                    data: qtrProfit.slice(0, quarters.length),
+                    borderColor: '#26c281',
+                    backgroundColor: 'rgba(38, 194, 129, 0.1)',
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    labels: { color: '#e8eaf6' }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                },
+                x: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                }
+            }
+        }
+    });
+}
+
+// ============================================================================
+// REMAINING FRAMEWORKS
+// ============================================================================
+
+// Earning Power Box
+function displayEarningPowerBox() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 4) {
+        document.getElementById('earningPowerBox').innerHTML = '<p style="color: var(--text-muted);">Requires 3+ years of data</p>';
+        return;
+    }
+    
+    // 3-year PAT CAGR
+    const patCAGR = calculateCAGR(annual.netProfit, 3);
+    
+    // CFO / Net Profit ratio (average of last 3 years)
+    const cfoRatios = [];
+    for (let i = n - 3; i < n; i++) {
+        if (annual.netProfit[i] > 0 && annual.cfo[i]) {
+            cfoRatios.push((annual.cfo[i] / annual.netProfit[i]) * 100);
+        }
+    }
+    const avgCFORatio = cfoRatios.length > 0 ? cfoRatios.reduce((a, b) => a + b, 0) / cfoRatios.length : null;
+    
+    // Determine quadrant
+    const highGrowth = patCAGR && patCAGR > 15;
+    const highCash = avgCFORatio && avgCFORatio > 80;
+    
+    let quadrant = '';
+    if (highGrowth && highCash) quadrant = 'star';
+    else if (highGrowth && !highCash) quadrant = 'investigate';
+    else if (!highGrowth && highCash) quadrant = 'cashcow';
+    else quadrant = 'redflag';
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; text-align: center;">
+            <div style="font-size: 1.1rem; margin-bottom: 0.5rem;">
+                <strong>Growth:</strong> ${formatPercent(patCAGR)} (3Y) | 
+                <strong>Cash Realization:</strong> ${formatPercent(avgCFORatio)}
+            </div>
+        </div>
+        <div class="epb-grid">
+            <div class="epb-quadrant ${quadrant === 'investigate' ? 'investigate current' : 'investigate'}">
+                <div class="epb-quadrant-title">🔍 INVESTIGATE</div>
+                <div class="epb-quadrant-desc">High Growth + Low Cash<br/>Growth may be capital-intensive</div>
+            </div>
+            <div class="epb-quadrant ${quadrant === 'star' ? 'star current' : 'star'}">
+                <div class="epb-quadrant-title">⭐ STAR</div>
+                <div class="epb-quadrant-desc">High Growth + High Cash<br/>Ideal Investment</div>
+            </div>
+            <div class="epb-quadrant ${quadrant === 'redflag' ? 'redflag current' : 'redflag'}">
+                <div class="epb-quadrant-title">⚠️ RED FLAG</div>
+                <div class="epb-quadrant-desc">Low Growth + Low Cash<br/>Avoid or Deep Value</div>
+            </div>
+            <div class="epb-quadrant ${quadrant === 'cashcow' ? 'cashcow current' : 'cashcow'}">
+                <div class="epb-quadrant-title">💰 CASH COW</div>
+                <div class="epb-quadrant-desc">Low Growth + High Cash<br/>Stable Dividend Play</div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('earningPowerBox').innerHTML = html;
+}
+
+// CAP Analysis
+function displayCAPAnalysis() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 5) {
+        document.getElementById('capAnalysis').innerHTML = '<p style="color: var(--text-muted);">Requires 5+ years of data</p>';
+        return;
+    }
+    
+    // Calculate ROIC for each year
+    const roics = [];
+    for (let i = 0; i < n; i++) {
+        const equity = (annual.equity[i] || 0) + (annual.reserves[i] || 0);
+        const debt = annual.borrowings[i] || 0;
+        const capital = equity + debt;
+        const nopat = (annual.netProfit[i] || 0) * 1.15; // Approximation
+        
+        if (capital > 0) {
+            roics.push((nopat / capital) * 100);
+        } else {
+            roics.push(null);
+        }
+    }
+    
+    // Assumed WACC = 13%
+    const wacc = 13;
+    
+    // Count years with ROIC > WACC
+    const capYears = roics.filter(r => r && r > wacc).length;
+    
+    const html = `
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+            <div>
+                <canvas id="capChart"></canvas>
+            </div>
+            <div>
+                <div style="padding: 1.5rem; background: var(--bg-secondary); border-radius: 6px;">
+                    <div style="font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem;">${capYears} Years</div>
+                    <div style="color: var(--text-secondary); margin-bottom: 1rem;">Competitive Advantage Period</div>
+                    <div style="font-size: 0.9rem; line-height: 1.6;">
+                        ${capYears >= 7 ? '✅ <strong>Strong CAP</strong> - Sustainable competitive advantage' :
+                          capYears >= 5 ? '⚠️ <strong>Moderate CAP</strong> - Some competitive position' :
+                          '⚠️ <strong>Weak CAP</strong> - Commodity-like business'}
+                    </div>
+                    <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                            <strong>Interpretation:</strong><br/>
+                            Years where ROIC > WACC (13%). Companies with CAP > 10 years have strong moats.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('capAnalysis').innerHTML = html;
+    
+    // Draw CAP chart
+    setTimeout(() => {
+        const ctx = document.getElementById('capChart');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: annual.years,
+                datasets: [
+                    {
+                        label: 'ROIC %',
+                        data: roics,
+                        borderColor: '#4fc3f7',
+                        backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                        tension: 0.3,
+                        fill: false
+                    },
+                    {
+                        label: 'WACC (13%)',
+                        data: Array(n).fill(wacc),
+                        borderColor: '#ef5350',
+                        borderDash: [5, 5],
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        labels: { color: '#e8eaf6' }
+                    }
+                },
+                scales: {
+                    y: {
+                        ticks: { 
+                            color: '#9fa8c9',
+                            callback: value => value + '%'
+                        },
+                        grid: { color: '#2a3764' }
+                    },
+                    x: {
+                        ticks: { color: '#9fa8c9' },
+                        grid: { color: '#2a3764' }
+                    }
+                }
+            }
+        });
+    }, 100);
+}
+
+// Capex Split
+function displayCapexSplit() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 3) {
+        document.getElementById('capexSplit').innerHTML = '<p style="color: var(--text-muted);">Requires 3+ years of data</p>';
+        return;
+    }
+    
+    const html = `
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            ${annual.years.slice(-5).map((year, i) => {
+                const idx = n - 5 + i;
+                if (idx < 0) return '';
+                
+                const depreciation = annual.depreciation[idx] || 0;
+                const cfi = Math.abs(annual.cfi[idx] || 0);
+                const maintenanceCapex = depreciation;
+                const growthCapex = cfi - depreciation;
+                
+                return `
+                    <div class="dupont-factor">
+                        <span class="factor-name">FY${year}</span>
+                        <span class="factor-value" style="font-size: 0.9rem;">
+                            Maint: ${formatNumber(maintenanceCapex)} | 
+                            Growth: ${formatNumber(growthCapex > 0 ? growthCapex : 0)} Cr
+                        </span>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+        <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary);">
+            <strong>Method:</strong> Maintenance Capex ≈ Depreciation<br/>
+            <strong>Owner Earnings:</strong> CFO - Maintenance Capex
+        </div>
+    `;
+    
+    document.getElementById('capexSplit').innerHTML = html;
+}
+
+// Incremental ROIC
+function displayIncrementalROIC() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 4) {
+        document.getElementById('incrementalROIC').innerHTML = '<p style="color: var(--text-muted);">Requires 4+ years of data</p>';
+        return;
+    }
+    
+    const rows = [];
+    for (let i = 1; i < Math.min(n, 6); i++) {
+        const idx = n - i - 1;
+        if (idx < 0) continue;
+        
+        const currEquity = (annual.equity[idx+1] || 0) + (annual.reserves[idx+1] || 0);
+        const prevEquity = (annual.equity[idx] || 0) + (annual.reserves[idx] || 0);
+        const currDebt = annual.borrowings[idx+1] || 0;
+        const prevDebt = annual.borrowings[idx] || 0;
+        
+        const deltaCapital = (currEquity + currDebt) - (prevEquity + prevDebt);
+        const deltaNOPAT = (annual.netProfit[idx+1] || 0) - (annual.netProfit[idx] || 0);
+        
+        const incROIC = deltaCapital > 0 ? (deltaNOPAT / deltaCapital) * 100 : null;
+        
+        // Historical ROIC
+        const avgCapital = ((currEquity + prevEquity) / 2) + ((currDebt + prevDebt) / 2);
+        const histROIC = avgCapital > 0 ? ((annual.netProfit[idx+1] || 0) * 1.15 / avgCapital) * 100 : null;
+        
+        rows.push({
+            year: annual.years[idx+1],
+            deltaCapital,
+            deltaNOPAT,
+            incROIC,
+            histROIC,
+            better: incROIC && histROIC && incROIC > histROIC
+        });
+    }
+    
+    const avgIncROIC = rows.filter(r => r.incROIC).reduce((sum, r) => sum + r.incROIC, 0) / rows.filter(r => r.incROIC).length;
+    const grade = avgIncROIC > 25 ? 'A' : avgIncROIC > 18 ? 'B' : avgIncROIC > 13 ? 'C' : avgIncROIC > 5 ? 'D' : 'F';
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 2rem; font-weight: 700; font-family: var(--font-mono);">Grade ${grade}</div>
+            <div style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                Avg Incremental ROIC: ${formatPercent(avgIncROIC)}
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            ${rows.map(row => `
+                <div class="dupont-factor">
+                    <span class="factor-name">FY${row.year}</span>
+                    <span class="factor-value" style="font-size: 0.85rem; ${row.better ? 'color: var(--accent-success)' : ''}">
+                        Inc: ${formatPercent(row.incROIC)} vs Hist: ${formatPercent(row.histROIC)}
+                        ${row.better ? ' ✓' : ''}
+                    </span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+    
+    document.getElementById('incrementalROIC').innerHTML = html;
+}
+
+// RM Sensitivity
+function displayRMSensitivity() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 3) {
+        document.getElementById('rmSensitivity').innerHTML = '<p style="color: var(--text-muted);">Requires 3+ years of data</p>';
+        return;
+    }
+    
+    // Calculate RM intensity
+    const rmIntensities = annual.sales.map((s, i) => {
+        if (!s || s === 0) return null;
+        const rm = annual.rawMaterial[i] || 0;
+        return (rm / s) * 100;
+    });
+    
+    const latestRMIntensity = rmIntensities[n-1];
+    
+    // Gross margin volatility
+    const grossMargins = annual.sales.map((s, i) => {
+        if (!s || s === 0) return null;
+        const rm = annual.rawMaterial[i] || 0;
+        const other = (annual.otherMfg[i] || 0);
+        return ((s - rm - other) / s) * 100;
+    }).filter(m => m !== null);
+    
+    const avgGM = grossMargins.reduce((a, b) => a + b, 0) / grossMargins.length;
+    const gmStdDev = Math.sqrt(grossMargins.reduce((sum, m) => sum + Math.pow(m - avgGM, 2), 0) / grossMargins.length);
+    
+    // Sensitivity level
+    let sensitivity = 'Low';
+    let sensitivityColor = 'var(--accent-success)';
+    if (latestRMIntensity > 60) {
+        sensitivity = 'High';
+        sensitivityColor = 'var(--accent-danger)';
+    } else if (latestRMIntensity > 40) {
+        sensitivity = 'Medium';
+        sensitivityColor = 'var(--accent-warning)';
+    }
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 1.5rem; font-weight: 700; color: ${sensitivityColor};">${sensitivity} Sensitivity</div>
+            <div style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                RM Intensity: ${formatPercent(latestRMIntensity)}
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">RM % of Sales</span>
+                <span class="factor-value">${formatPercent(latestRMIntensity)}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Gross Margin Volatility</span>
+                <span class="factor-value">${gmStdDev.toFixed(1)}% σ</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Avg Gross Margin</span>
+                <span class="factor-value">${formatPercent(avgGM)}</span>
+            </div>
+        </div>
+        <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary);">
+            ${gmStdDev < 3 ? '✅ Low volatility suggests good pricing power' :
+              gmStdDev < 5 ? '⚠️ Moderate volatility - some pricing power' :
+              '⚠️ High volatility - weak pricing power, vulnerable to RM shocks'}
+        </div>
+    `;
+    
+    document.getElementById('rmSensitivity').innerHTML = html;
+}
+
+// Buffett $1 Test
+function displayBuffettTest() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 6) {
+        document.getElementById('buffettTest').innerHTML = '<p style="color: var(--text-muted);">Requires 5+ years of data</p>';
+        return;
+    }
+    
+    // Calculate retained earnings over 5 years
+    let retainedEarnings = 0;
+    for (let i = n - 6; i < n; i++) {
+        const profit = annual.netProfit[i] || 0;
+        const dividend = annual.dividend[i] || 0;
+        retainedEarnings += (profit - dividend);
+    }
+    
+    // Book value change
+    const oldBookValue = (annual.equity[n-6] || 0) + (annual.reserves[n-6] || 0);
+    const newBookValue = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+    const bookValueChange = newBookValue - oldBookValue;
+    
+    const ratio = retainedEarnings > 0 ? bookValueChange / retainedEarnings : null;
+    
+    const passed = ratio && ratio >= 1.0;
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1.5rem; background: ${passed ? 'rgba(38, 194, 129, 0.1)' : 'rgba(239, 83, 80, 0.1)'}; border-radius: 6px; border: 2px solid ${passed ? 'var(--accent-success)' : 'var(--accent-danger)'};">
+            <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">
+                ${passed ? '✅ PASSED' : '❌ FAILED'}
+            </div>
+            <div style="font-size: 1rem; color: var(--text-secondary);">
+                Ratio: ${ratio ? ratio.toFixed(2) : 'N/A'}x
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">Retained Earnings (5Y)</span>
+                <span class="factor-value">${formatNumber(retainedEarnings)} Cr</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Book Value Change</span>
+                <span class="factor-value">${formatNumber(bookValueChange)} Cr</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Value Created per Re. 1</span>
+                <span class="factor-value">₹${ratio ? ratio.toFixed(2) : 'N/A'}</span>
+            </div>
+        </div>
+        <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary);">
+            <strong>The Test:</strong> For every Re. 1 retained, has book value increased by at least Re. 1?<br/>
+            ${passed ? 
+              '✅ Management is deploying retained earnings productively.' :
+              '❌ Management destroying value. Consider higher dividends or buybacks.'}
+        </div>
+    `;
+    
+    document.getElementById('buffettTest').innerHTML = html;
+}
+
+// FLOAT Detection
+function displayFLOATDetection() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 3) {
+        document.getElementById('floatDetection').innerHTML = '<p style="color: var(--text-muted);">Requires 3+ years of data</p>';
+        return;
+    }
+    
+    // Calculate CCC (simplified - missing creditor days)
+    const latestSales = annual.sales[n-1];
+    const latestReceivables = annual.receivables[n-1] || 0;
+    const latestInventory = annual.inventory[n-1] || 0;
+    const cogs = (annual.rawMaterial[n-1] || 0) + (annual.otherMfg[n-1] || 0);
+    
+    const debtorDays = latestSales > 0 ? (latestReceivables / latestSales) * 365 : null;
+    const inventoryDays = cogs > 0 ? (latestInventory / cogs) * 365 : null;
+    const ccc = debtorDays + inventoryDays - 30; // Assume 30 days creditor (rough estimate)
+    
+    // Other Income / Other Liabilities (float earnings indicator)
+    const otherIncome = annual.otherIncome[n-1] || 0;
+    const otherLiabilities = annual.otherLiabilities[n-1] || 0;
+    const floatEarningsRatio = otherLiabilities > 0 ? (otherIncome / otherLiabilities) * 100 : null;
+    
+    const floatDetected = (ccc < -30) || (floatEarningsRatio && floatEarningsRatio > 5);
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1.5rem; background: ${floatDetected ? 'rgba(79, 195, 247, 0.1)' : 'rgba(107, 117, 153, 0.1)'}; border-radius: 6px; border: 2px solid ${floatDetected ? 'var(--accent-primary)' : 'var(--border-color)'};">
+            <div style="font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem;">
+                ${floatDetected ? '💰 FLOAT DETECTED' : '❌ No Float Detected'}
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text-secondary);">
+                ${floatDetected ? 'Company may benefit from customer funds' : 'Standard working capital model'}
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">Cash Conversion Cycle</span>
+                <span class="factor-value">${ccc ? Math.round(ccc) + ' days' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Other Liabilities</span>
+                <span class="factor-value">${formatNumber(otherLiabilities)} Cr</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Float Earnings Ratio</span>
+                <span class="factor-value">${formatPercent(floatEarningsRatio)}</span>
+            </div>
+        </div>
+        <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; font-size: 0.85rem; line-height: 1.6; color: var(--text-secondary);">
+            <strong>Float Indicators:</strong><br/>
+            ${ccc < -30 ? '✓ Negative CCC - collects before paying suppliers<br/>' : ''}
+            ${floatEarningsRatio && floatEarningsRatio > 5 ? '✓ Earning returns on customer funds<br/>' : ''}
+            ${floatDetected ? 'Examples: Insurance, retail chains, exchanges' : 'Standard operating model'}
+        </div>
+    `;
+    
+    document.getElementById('floatDetection').innerHTML = html;
+}
+
+// ============================================================================
+// EXPORT & PRINT
+// ============================================================================
+
+document.getElementById('printBtn').addEventListener('click', () => {
+    window.print();
+});
+
+document.getElementById('exportBtn').addEventListener('click', async () => {
+    alert('PDF export feature requires html2pdf.js library. For now, please use Print function and save as PDF.');
+    // Future: Implement html2pdf.js for proper PDF export
+});
+
+// ============================================================================
+// GLOBAL WORKBOOK STORAGE (for quarterly analysis)
+// ============================================================================
+let workbookGlobal = null;
+
+// Update the original parseExcelData to store workbook
+const originalHandleFileUpload = handleFileUpload;
+
