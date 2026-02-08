@@ -1048,18 +1048,24 @@ function createRevenueChart() {
                 {
                     label: 'Revenue',
                     data: annual.sales,
-                    borderColor: '#4fc3f7',
-                    backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                    borderColor: '#2ecc71',
+                    backgroundColor: 'rgba(46, 204, 113, 0.1)',
                     yAxisID: 'y',
-                    tension: 0.3
+                    tension: 0.4,
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
                 },
                 {
                     label: 'Net Profit',
                     data: annual.netProfit,
-                    borderColor: '#26c281',
-                    backgroundColor: 'rgba(38, 194, 129, 0.1)',
+                    borderColor: '#27ae60',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
                     yAxisID: 'y',
-                    tension: 0.3
+                    tension: 0.4,
+                    borderWidth: 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
                 }
             ]
         },
@@ -1068,19 +1074,22 @@ function createRevenueChart() {
             maintainAspectRatio: true,
             plugins: {
                 legend: {
-                    labels: { color: '#e8eaf6' }
+                    labels: { 
+                        color: '#ffffff',
+                        font: { size: 12, weight: '600' }
+                    }
                 }
             },
             scales: {
                 y: {
                     type: 'linear',
                     position: 'left',
-                    ticks: { color: '#9fa8c9' },
-                    grid: { color: '#2a3764' }
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: '#333333' }
                 },
                 x: {
-                    ticks: { color: '#9fa8c9' },
-                    grid: { color: '#2a3764' }
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: '#333333' }
                 }
             }
         }
@@ -1114,16 +1123,18 @@ function createMarginChart() {
                 {
                     label: 'Operating Margin %',
                     data: margins,
-                    borderColor: '#f4a742',
-                    backgroundColor: 'rgba(244, 167, 66, 0.1)',
-                    tension: 0.3
+                    borderColor: '#2ecc71',
+                    backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                    tension: 0.4,
+                    borderWidth: 3
                 },
                 {
                     label: 'Net Margin %',
                     data: netMargins,
-                    borderColor: '#26c281',
-                    backgroundColor: 'rgba(38, 194, 129, 0.1)',
-                    tension: 0.3
+                    borderColor: '#27ae60',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                    tension: 0.4,
+                    borderWidth: 3
                 }
             ]
         },
@@ -1132,20 +1143,20 @@ function createMarginChart() {
             maintainAspectRatio: true,
             plugins: {
                 legend: {
-                    labels: { color: '#e8eaf6' }
+                    labels: { color: '#ffffff' }
                 }
             },
             scales: {
                 y: {
                     ticks: { 
-                        color: '#9fa8c9',
+                        color: '#a0a0a0',
                         callback: value => value + '%'
                     },
-                    grid: { color: '#2a3764' }
+                    grid: { color: '#333333' }
                 },
                 x: {
-                    ticks: { color: '#9fa8c9' },
-                    grid: { color: '#2a3764' }
+                    ticks: { color: '#a0a0a0' },
+                    grid: { color: '#333333' }
                 }
             }
         }
