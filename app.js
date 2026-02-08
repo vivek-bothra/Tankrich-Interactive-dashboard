@@ -1,949 +1,1296 @@
-const fileInput = document.getElementById("fileInput");
-const uploadStatus = document.getElementById("uploadStatus");
+// Tankrich Dashboard - Main Application Logic
 
-const companyNameEl = document.getElementById("companyName");
-const currentPriceEl = document.getElementById("currentPrice");
-const marketCapEl = document.getElementById("marketCap");
-const latestYearEl = document.getElementById("latestYear");
+// Global state
+let companyData = null;
 
-const overviewNameEl = document.getElementById("overviewName");
-const faceValueEl = document.getElementById("faceValue");
-const overviewLatestEl = document.getElementById("overviewLatest");
-const dataCoverageEl = document.getElementById("dataCoverage");
-const highlightsEl = document.getElementById("highlights");
-const salesCagrEl = document.getElementById("salesCagr");
-const profitCagrEl = document.getElementById("profitCagr");
-const roeLatestEl = document.getElementById("roeLatest");
-const roceLatestEl = document.getElementById("roceLatest");
-
-const growthMetricsEl = document.getElementById("growthMetrics");
-const profitabilityMetricsEl = document.getElementById("profitabilityMetrics");
-const efficiencyMetricsEl = document.getElementById("efficiencyMetrics");
-const leverageMetricsEl = document.getElementById("leverageMetrics");
-
-const revenueChartEl = document.getElementById("revenueChart");
-const marginChartEl = document.getElementById("marginChart");
-const returnChartEl = document.getElementById("returnChart");
-
-const moatScoreEl = document.getElementById("moatScore");
-const moatBreakdownEl = document.getElementById("moatBreakdown");
-const capexSplitEl = document.getElementById("capexSplit");
-const incrementalRoicEl = document.getElementById("incrementalRoic");
-const capitalAllocationScoreEl = document.getElementById("capitalAllocationScore");
-const capitalAllocationBreakdownEl = document.getElementById("capitalAllocationBreakdown");
-const valueDriversEl = document.getElementById("valueDrivers");
-const rawMaterialSensitivityEl = document.getElementById("rawMaterialSensitivity");
-const valueMigrationEl = document.getElementById("valueMigration");
-const qualityScoreEl = document.getElementById("qualityScore");
-const qualityBreakdownEl = document.getElementById("qualityBreakdown");
-
-const plTableEl = document.getElementById("plTable");
-const bsTableEl = document.getElementById("bsTable");
-const cfTableEl = document.getElementById("cfTable");
-
-const TAB_BUTTONS = document.querySelectorAll(".tab-button");
-const TAB_PANELS = document.querySelectorAll(".tab-panel");
-
-const REQUIRED_SHEETS = ["Data Sheet", "Profit & Loss", "Balance Sheet", "Cash Flow"];
-
-const safeNumber = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const formatNumber = (value, suffix = "") => {
-  if (value === null || value === undefined) return "-";
-  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`;
-};
-
-const formatPercent = (value) => {
-  if (value === null || value === undefined) return "-";
-  return `${value.toFixed(1)}%`;
-};
-
-const getRowSlice = (rows, index) => {
-  if (!rows[index]) return [];
-  return rows[index].slice(4);
-};
-
-const normalizeLabel = (value) => String(value ?? "")
-  .toLowerCase()
-  .replace(/[^a-z0-9]/g, "");
-
-const findRowIndex = (rows, candidates, start = 0, end = rows.length, occurrence = 1) => {
-  const normalizedCandidates = candidates.map(normalizeLabel);
-  let matched = 0;
-  for (let i = start; i < Math.min(end, rows.length); i += 1) {
-    const rowLabel = normalizeLabel(rows[i]?.[0]);
-    if (!rowLabel) continue;
-    if (normalizedCandidates.some((candidate) => rowLabel.includes(candidate))) {
-      matched += 1;
-      if (matched === occurrence) return i;
-    }
-  }
-  return -1;
-};
-
-const getValueByLabel = (rows, candidates, defaultValue = null, start = 0, end = rows.length, occurrence = 1) => {
-  const index = findRowIndex(rows, candidates, start, end, occurrence);
-  if (index < 0) return defaultValue;
-  return rows[index]?.[1] ?? defaultValue;
-};
-
-const getSeriesByLabel = (rows, candidates, start = 0, end = rows.length, occurrence = 1) => {
-  const index = findRowIndex(rows, candidates, start, end, occurrence);
-  return index >= 0 ? getRowSlice(rows, index) : [];
-};
-
-const formatReportDate = (value) => {
-  if (value === null || value === undefined || value === "") return "-";
-
-  if (Number.isFinite(value)) {
-    const parsed = XLSX?.SSF?.parse_date_code?.(value);
-    if (parsed?.y) return String(parsed.y);
-    return String(value);
-  }
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (/^\d+(\.\d+)?$/.test(trimmed)) {
-      const parsed = XLSX?.SSF?.parse_date_code?.(Number(trimmed));
-      if (parsed?.y) return String(parsed.y);
-    }
-    const yearMatch = trimmed.match(/\b(19|20)\d{2}\b/);
-    return yearMatch ? yearMatch[0] : trimmed;
-  }
-
-  return String(value);
-};
-
-const calculateMargin = (numerator, denominator) => {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
-  return (numerator / denominator) * 100;
-};
-
-const getLatestValue = (values) => {
-  const filtered = values.filter((val) => Number.isFinite(val));
-  return filtered.length ? filtered[filtered.length - 1] : null;
-};
-
-const getAverage = (values) => {
-  const filtered = values.filter((val) => Number.isFinite(val));
-  if (!filtered.length) return null;
-  return filtered.reduce((sum, val) => sum + val, 0) / filtered.length;
-};
-
-const getMedian = (values) => {
-  const filtered = values.filter((val) => Number.isFinite(val)).sort((a, b) => a - b);
-  if (!filtered.length) return null;
-  const mid = Math.floor(filtered.length / 2);
-  return filtered.length % 2 ? filtered[mid] : (filtered[mid - 1] + filtered[mid]) / 2;
-};
-
-const getStdDev = (values) => {
-  const avg = getAverage(values);
-  const filtered = values.filter((val) => Number.isFinite(val));
-  if (!Number.isFinite(avg) || filtered.length < 2) return null;
-  const variance = filtered.reduce((sum, value) => sum + ((value - avg) ** 2), 0) / filtered.length;
-  return Math.sqrt(variance);
-};
-
-const calculateCAGR = (values, years) => {
-  if (!values.length || years <= 0) return null;
-  const filtered = values.filter((val) => Number.isFinite(val));
-  if (filtered.length <= years) return null;
-  const end = filtered[filtered.length - 1];
-  const start = filtered[filtered.length - 1 - years];
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0) return null;
-  return (Math.pow(end / start, 1 / years) - 1) * 100;
-};
-
-const calculateRatio = (numerator, denominator) => {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) return null;
-  return numerator / denominator;
-};
-
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
-const scoreFromThresholds = (value, thresholds = []) => {
-  if (!Number.isFinite(value) || !thresholds.length) return 0;
-  let score = 0;
-  thresholds.forEach(({ min, points }) => {
-    if (value >= min) score = points;
-  });
-  return score;
-};
-
-const scoreFromInverseThresholds = (value, thresholds = []) => {
-  if (!Number.isFinite(value) || !thresholds.length) return 0;
-  let score = 0;
-  thresholds.forEach(({ max, points }) => {
-    if (value <= max) score = points;
-  });
-  return score;
-};
-
-const formatRatio = (value) => {
-  if (value === null || value === undefined) return "-";
-  return `${value.toFixed(2)}x`;
-};
-
-const formatScore = (value, maxScore = 100) => {
-  if (!Number.isFinite(value)) return "-";
-  return `${Math.round(value)}/${maxScore}`;
-};
-
-const getSeriesFirstAndLast = (series) => {
-  const filtered = series
-    .map((value, index) => ({ value, index }))
-    .filter(({ value }) => Number.isFinite(value));
-  if (filtered.length < 2) return null;
-  return {
-    first: filtered[0].value,
-    last: filtered[filtered.length - 1].value,
-    span: filtered[filtered.length - 1].index - filtered[0].index,
-  };
-};
-
-const calculateIncrementalRatio = (numeratorSeries, denominatorSeries, periodsBack) => {
-  const pairs = numeratorSeries
-    .map((value, index) => ({ num: value, den: denominatorSeries[index] }))
-    .filter(({ num, den }) => Number.isFinite(num) && Number.isFinite(den));
-  if (pairs.length <= periodsBack) return null;
-  const end = pairs[pairs.length - 1];
-  const start = pairs[pairs.length - 1 - periodsBack];
-  const deltaDen = end.den - start.den;
-  if (!Number.isFinite(deltaDen) || deltaDen === 0) return null;
-  return (end.num - start.num) / deltaDen;
-};
-
-const renderMetricList = (container, metrics) => {
-  container.innerHTML = "";
-  metrics.forEach(({ label, value }) => {
-    const row = document.createElement("div");
-    row.className = "metric-item";
-    const name = document.createElement("span");
-    name.textContent = label;
-    const metricValue = document.createElement("span");
-    metricValue.textContent = value ?? "-";
-    row.appendChild(name);
-    row.appendChild(metricValue);
-    container.appendChild(row);
-  });
-};
-
-const destroyChart = (chartRef) => {
-  if (chartRef?.destroy) {
-    chartRef.destroy();
-  }
-};
-
-let revenueChart;
-let marginChart;
-let returnChart;
-
-const renderTable = (container, headers, rows) => {
-  if (!headers.length) {
-    container.innerHTML = "<p class=\"status-text\">No data available.</p>";
-    return;
-  }
-
-  const table = document.createElement("table");
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-
-  headers.forEach((header) => {
-    const th = document.createElement("th");
-    th.textContent = header;
-    headRow.appendChild(th);
-  });
-
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  rows.forEach((row) => {
-    const tr = document.createElement("tr");
-    row.forEach((cell, index) => {
-      const td = document.createElement("td");
-      td.textContent = cell ?? "-";
-      if (index > 0 && typeof cell === "string" && cell.endsWith("%")) {
-        const numeric = Number(cell.replace("%", ""));
-        if (Number.isFinite(numeric)) {
-          td.classList.add(numeric >= 0 ? "positive" : "negative");
-        }
-      }
-      tr.appendChild(td);
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    const fileInput = document.getElementById('fileInput');
+    const fileInputWelcome = document.getElementById('fileInputWelcome');
+    
+    fileInput.addEventListener('change', handleFileUpload);
+    fileInputWelcome.addEventListener('change', handleFileUpload);
+    
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
     });
-    tbody.appendChild(tr);
-  });
-
-  table.appendChild(tbody);
-  container.innerHTML = "";
-  container.appendChild(table);
-};
-
-const parseDataSheet = (sheet) => {
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
-
-  const plStart = findRowIndex(rows, ["profitloss"]);
-  const quartersStart = findRowIndex(rows, ["quarters"], plStart + 1);
-  const bsStart = findRowIndex(rows, ["balancesheet"], (quartersStart >= 0 ? quartersStart + 1 : plStart + 1));
-  const cfStart = findRowIndex(rows, ["cashflow"], (bsStart >= 0 ? bsStart + 1 : 0));
-
-  const metaEnd = plStart > 0 ? plStart : rows.length;
-  const plEnd = quartersStart > 0 ? quartersStart : (bsStart > 0 ? bsStart : rows.length);
-  const bsEnd = cfStart > 0 ? cfStart : rows.length;
-  const cfEnd = rows.length;
-
-  const meta = {
-    name: getValueByLabel(rows, ["companyname"], "N/A", 0, metaEnd),
-    faceValue: safeNumber(getValueByLabel(rows, ["facevalue"], null, 0, metaEnd)),
-    currentPrice: safeNumber(getValueByLabel(rows, ["currentprice"], null, 0, metaEnd)),
-    marketCap: safeNumber(getValueByLabel(rows, ["marketcapitalization", "marketcap"], null, 0, metaEnd)),
-  };
-
-  const dates = getSeriesByLabel(rows, ["reportdate"], plStart, plEnd).map(formatReportDate);
-
-  const metrics = {
-    sales: getSeriesByLabel(rows, ["sales"], plStart, plEnd).map(safeNumber),
-    rawMaterial: getSeriesByLabel(rows, ["rawmaterialcost"], plStart, plEnd).map(safeNumber),
-    inventoryChange: getSeriesByLabel(rows, ["changeininventory"], plStart, plEnd).map(safeNumber),
-    powerFuel: getSeriesByLabel(rows, ["powerandfuel", "powerfuel"], plStart, plEnd).map(safeNumber),
-    otherMfg: getSeriesByLabel(rows, ["othermfrexp", "othermanufacturing"], plStart, plEnd).map(safeNumber),
-    employeeCost: getSeriesByLabel(rows, ["employeecost"], plStart, plEnd).map(safeNumber),
-    sellingAdmin: getSeriesByLabel(rows, ["sellingandadmin", "sellingadmin"], plStart, plEnd).map(safeNumber),
-    otherExpenses: getSeriesByLabel(rows, ["otherexpenses"], plStart, plEnd).map(safeNumber),
-    otherIncome: getSeriesByLabel(rows, ["otherincome"], plStart, plEnd).map(safeNumber),
-    depreciation: getSeriesByLabel(rows, ["depreciation"], plStart, plEnd).map(safeNumber),
-    interest: getSeriesByLabel(rows, ["interest"], plStart, plEnd).map(safeNumber),
-    pbt: getSeriesByLabel(rows, ["profitbeforetax"], plStart, plEnd).map(safeNumber),
-    tax: getSeriesByLabel(rows, ["tax"], plStart, plEnd).map(safeNumber),
-    netProfit: getSeriesByLabel(rows, ["netprofit"], plStart, plEnd).map(safeNumber),
-    dividend: getSeriesByLabel(rows, ["dividendamount", "dividend"], plStart, plEnd).map(safeNumber),
-  };
-
-  const balanceSheetDates = getSeriesByLabel(rows, ["reportdate"], bsStart, bsEnd).map(formatReportDate);
-  const balanceSheet = {
-    equity: getSeriesByLabel(rows, ["equitysharecapital"], bsStart, bsEnd).map(safeNumber),
-    reserves: getSeriesByLabel(rows, ["reserves"], bsStart, bsEnd).map(safeNumber),
-    borrowings: getSeriesByLabel(rows, ["borrowings"], bsStart, bsEnd).map(safeNumber),
-    otherLiabilities: getSeriesByLabel(rows, ["otherliabilities"], bsStart, bsEnd).map(safeNumber),
-    totalLiabilities: getSeriesByLabel(rows, ["total"], bsStart, bsEnd, 1).map(safeNumber),
-    netBlock: getSeriesByLabel(rows, ["netblock"], bsStart, bsEnd).map(safeNumber),
-    cwip: getSeriesByLabel(rows, ["capitalworkinprogress", "cwip"], bsStart, bsEnd).map(safeNumber),
-    investments: getSeriesByLabel(rows, ["investments"], bsStart, bsEnd).map(safeNumber),
-    otherAssets: getSeriesByLabel(rows, ["otherassets"], bsStart, bsEnd).map(safeNumber),
-    totalAssets: getSeriesByLabel(rows, ["total"], bsStart, bsEnd, 2).map(safeNumber),
-    receivables: getSeriesByLabel(rows, ["receivables"], bsStart, bsEnd).map(safeNumber),
-    inventory: getSeriesByLabel(rows, ["inventory"], bsStart, bsEnd).map(safeNumber),
-    cash: getSeriesByLabel(rows, ["cashbank", "cashandbank"], bsStart, bsEnd).map(safeNumber),
-    shares: getSeriesByLabel(rows, ["noofequityshares"], bsStart, bsEnd).map(safeNumber),
-  };
-  if (!balanceSheet.totalAssets.length && balanceSheet.totalLiabilities.length) {
-    balanceSheet.totalAssets = [...balanceSheet.totalLiabilities];
-  }
-
-  const cashFlowDates = getSeriesByLabel(rows, ["reportdate"], cfStart, cfEnd).map(formatReportDate);
-  const cashFlow = {
-    cfo: getSeriesByLabel(rows, ["cashfromoperatingactivity"], cfStart, cfEnd).map(safeNumber),
-    cfi: getSeriesByLabel(rows, ["cashfrominvestingactivity"], cfStart, cfEnd).map(safeNumber),
-    cff: getSeriesByLabel(rows, ["cashfromfinancingactivity"], cfStart, cfEnd).map(safeNumber),
-    netCash: getSeriesByLabel(rows, ["netcashflow"], cfStart, cfEnd).map(safeNumber),
-  };
-
-  return { meta, dates, metrics, balanceSheetDates, balanceSheet, cashFlowDates, cashFlow };
-};
-
-const updateOverview = (data) => {
-  const latestYear = data.dates[data.dates.length - 1] ?? "-";
-  const coverage = `${data.dates.length} years`;
-  const latestSales = getLatestValue(data.metrics.sales);
-  const latestProfit = getLatestValue(data.metrics.netProfit);
-  const latestMargin = calculateMargin(latestProfit, latestSales);
-
-  const salesCagr5 = calculateCAGR(data.metrics.sales, 5);
-  const profitCagr5 = calculateCAGR(data.metrics.netProfit, 5);
-
-  const equityValues = data.balanceSheet.equity.map((equity, index) => {
-    const reserves = data.balanceSheet.reserves[index];
-    if (!Number.isFinite(equity) && !Number.isFinite(reserves)) return null;
-    return (equity ?? 0) + (reserves ?? 0);
-  });
-
-  const latestEquity = getLatestValue(equityValues);
-  const latestBorrowings = getLatestValue(data.balanceSheet.borrowings);
-
-  const roeLatest = calculateMargin(latestProfit, latestEquity);
-  const capitalEmployed = Number.isFinite(latestEquity) || Number.isFinite(latestBorrowings)
-    ? (latestEquity ?? 0) + (latestBorrowings ?? 0)
-    : null;
-  const roceLatest = calculateMargin(latestProfit, capitalEmployed);
-
-  companyNameEl.textContent = data.meta.name ?? "-";
-  currentPriceEl.textContent = formatNumber(data.meta.currentPrice);
-  marketCapEl.textContent = formatNumber(data.meta.marketCap);
-  latestYearEl.textContent = latestYear;
-
-  overviewNameEl.textContent = data.meta.name ?? "-";
-  faceValueEl.textContent = formatNumber(data.meta.faceValue);
-  overviewLatestEl.textContent = latestYear;
-  dataCoverageEl.textContent = coverage;
-
-  highlightsEl.innerHTML = "";
-  const highlights = [
-    `Latest Sales: ${formatNumber(latestSales)}`,
-    `Latest Net Profit: ${formatNumber(latestProfit)}`,
-    `Net Margin: ${formatPercent(latestMargin)}`,
-  ];
-
-  highlights.forEach((item) => {
-    const p = document.createElement("p");
-    p.textContent = item;
-    highlightsEl.appendChild(p);
-  });
-
-  salesCagrEl.textContent = formatPercent(salesCagr5);
-  profitCagrEl.textContent = formatPercent(profitCagr5);
-  roeLatestEl.textContent = formatPercent(roeLatest);
-  roceLatestEl.textContent = formatPercent(roceLatest);
-};
-
-const buildPLTable = (data) => {
-  const headers = ["Metric", ...data.dates];
-  const rows = [];
-
-  const operatingExpenses = data.metrics.sales.map((_, index) => {
-    const values = [
-      data.metrics.rawMaterial[index],
-      data.metrics.inventoryChange[index],
-      data.metrics.powerFuel[index],
-      data.metrics.otherMfg[index],
-      data.metrics.employeeCost[index],
-      data.metrics.sellingAdmin[index],
-      data.metrics.otherExpenses[index],
-    ];
-    if (values.every((val) => val === null)) return null;
-    return values.reduce((sum, value) => (Number.isFinite(value) ? sum + value : sum), 0);
-  });
-
-  const ebitda = data.metrics.sales.map((sales, index) => {
-    if (!Number.isFinite(sales)) return null;
-    const expenses = operatingExpenses[index] ?? 0;
-    const otherIncome = data.metrics.otherIncome[index] ?? 0;
-    return sales - expenses + otherIncome;
-  });
-
-  const rowMap = [
-    ["Sales", data.metrics.sales],
-    ["Raw Material Cost", data.metrics.rawMaterial],
-    ["Change in Inventory", data.metrics.inventoryChange],
-    ["Power & Fuel", data.metrics.powerFuel],
-    ["Other Manufacturing", data.metrics.otherMfg],
-    ["Employee Cost", data.metrics.employeeCost],
-    ["Selling & Admin", data.metrics.sellingAdmin],
-    ["Other Expenses", data.metrics.otherExpenses],
-    ["Other Income", data.metrics.otherIncome],
-    ["EBITDA", ebitda],
-    ["Depreciation", data.metrics.depreciation],
-    ["Interest", data.metrics.interest],
-    ["Profit Before Tax", data.metrics.pbt],
-    ["Tax", data.metrics.tax],
-    ["Net Profit", data.metrics.netProfit],
-    ["Dividend", data.metrics.dividend],
-  ];
-
-  rowMap.forEach(([label, values]) => {
-    rows.push([label, ...values.map((value) => (value === null ? "-" : formatNumber(value)))]);
-  });
-
-  const marginsRow = data.metrics.sales.map((sales, index) =>
-    formatPercent(calculateMargin(data.metrics.netProfit[index], sales))
-  );
-  rows.push(["Net Margin %", ...marginsRow]);
-
-  renderTable(plTableEl, headers, rows);
-};
-
-const buildBSTable = (data) => {
-  const headers = ["Metric", ...data.balanceSheetDates];
-  const rows = [
-    ["Equity Share Capital", data.balanceSheet.equity],
-    ["Reserves", data.balanceSheet.reserves],
-    ["Borrowings", data.balanceSheet.borrowings],
-    ["Other Liabilities", data.balanceSheet.otherLiabilities],
-    ["Total Liabilities", data.balanceSheet.totalLiabilities],
-    ["Net Block", data.balanceSheet.netBlock],
-    ["CWIP", data.balanceSheet.cwip],
-    ["Investments", data.balanceSheet.investments],
-    ["Other Assets", data.balanceSheet.otherAssets],
-    ["Total Assets", data.balanceSheet.totalAssets],
-    ["Receivables", data.balanceSheet.receivables],
-    ["Inventory", data.balanceSheet.inventory],
-    ["Cash & Bank", data.balanceSheet.cash],
-    ["Number of Equity Shares", data.balanceSheet.shares],
-  ].map(([label, values]) => [label, ...values.map((value) => (value === null ? "-" : formatNumber(value)))]);
-
-  renderTable(bsTableEl, headers, rows);
-};
-
-const buildCFTable = (data) => {
-  const headers = ["Metric", ...data.cashFlowDates];
-  const rows = [
-    ["Cash From Operating Activity", data.cashFlow.cfo],
-    ["Cash From Investing Activity", data.cashFlow.cfi],
-    ["Cash From Financing Activity", data.cashFlow.cff],
-    ["Net Cash Flow", data.cashFlow.netCash],
-  ].map(([label, values]) => [label, ...values.map((value) => (value === null ? "-" : formatNumber(value)))]);
-
-  renderTable(cfTableEl, headers, rows);
-};
-
-const buildAnalysis = (data) => {
-  const salesCagr3 = calculateCAGR(data.metrics.sales, 3);
-  const salesCagr5 = calculateCAGR(data.metrics.sales, 5);
-  const profitCagr3 = calculateCAGR(data.metrics.netProfit, 3);
-  const profitCagr5 = calculateCAGR(data.metrics.netProfit, 5);
-
-  const equityValues = data.balanceSheet.equity.map((equity, index) => {
-    const reserves = data.balanceSheet.reserves[index];
-    if (!Number.isFinite(equity) && !Number.isFinite(reserves)) return null;
-    return (equity ?? 0) + (reserves ?? 0);
-  });
-  const assets = data.balanceSheet.totalAssets;
-  const latestProfit = getLatestValue(data.metrics.netProfit);
-  const latestEquity = getLatestValue(equityValues);
-  const latestAssets = getLatestValue(assets);
-  const latestBorrowings = getLatestValue(data.balanceSheet.borrowings);
-  const latestSales = getLatestValue(data.metrics.sales);
-
-  const roeLatest = calculateMargin(latestProfit, latestEquity);
-  const roceLatest = calculateMargin(latestProfit, (latestEquity ?? 0) + (latestBorrowings ?? 0));
-  const roaLatest = calculateMargin(latestProfit, latestAssets);
-
-  const inventory = getLatestValue(data.balanceSheet.inventory);
-  const receivables = getLatestValue(data.balanceSheet.receivables);
-  const inventoryDays = calculateRatio(inventory, latestSales);
-  const debtorDays = calculateRatio(receivables, latestSales);
-
-  const debtToEquity = calculateRatio(latestBorrowings, latestEquity);
-  const interest = getLatestValue(data.metrics.interest);
-  const ebit = Number.isFinite(latestProfit) && Number.isFinite(interest)
-    ? latestProfit + interest
-    : null;
-  const interestCoverage = calculateRatio(ebit, interest);
-
-  renderMetricList(growthMetricsEl, [
-    { label: "Sales CAGR (3Y)", value: formatPercent(salesCagr3) },
-    { label: "Sales CAGR (5Y)", value: formatPercent(salesCagr5) },
-    { label: "Profit CAGR (3Y)", value: formatPercent(profitCagr3) },
-    { label: "Profit CAGR (5Y)", value: formatPercent(profitCagr5) },
-  ]);
-
-  renderMetricList(profitabilityMetricsEl, [
-    { label: "ROE (Latest)", value: formatPercent(roeLatest) },
-    { label: "ROCE (Latest)", value: formatPercent(roceLatest) },
-    { label: "ROA (Latest)", value: formatPercent(roaLatest) },
-  ]);
-
-  renderMetricList(efficiencyMetricsEl, [
-    { label: "Inventory Days (proxy)", value: inventoryDays ? `${(inventoryDays * 365).toFixed(0)} days` : "-" },
-    { label: "Debtor Days (proxy)", value: debtorDays ? `${(debtorDays * 365).toFixed(0)} days` : "-" },
-  ]);
-
-  renderMetricList(leverageMetricsEl, [
-    { label: "Debt-to-Equity", value: formatRatio(debtToEquity) },
-    { label: "Interest Coverage", value: formatRatio(interestCoverage) },
-  ]);
-};
-
-const buildCharts = (data) => {
-  const labels = data.dates;
-  const sales = data.metrics.sales.map((value) => value ?? null);
-  const profit = data.metrics.netProfit.map((value) => value ?? null);
-
-  destroyChart(revenueChart);
-  destroyChart(marginChart);
-  destroyChart(returnChart);
-
-  revenueChart = new Chart(revenueChartEl, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "Sales", data: sales, borderColor: "#2b6cff", backgroundColor: "rgba(43, 108, 255, 0.2)" },
-        { label: "Net Profit", data: profit, borderColor: "#1d8f50", backgroundColor: "rgba(29, 143, 80, 0.2)" },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-    },
-  });
-
-  const opm = data.metrics.sales.map((salesValue, index) =>
-    calculateMargin(
-      (salesValue ?? 0) -
-        (data.metrics.rawMaterial[index] ?? 0) -
-        (data.metrics.inventoryChange[index] ?? 0) -
-        (data.metrics.powerFuel[index] ?? 0) -
-        (data.metrics.otherMfg[index] ?? 0) -
-        (data.metrics.employeeCost[index] ?? 0) -
-        (data.metrics.sellingAdmin[index] ?? 0) -
-        (data.metrics.otherExpenses[index] ?? 0),
-      salesValue
-    )
-  );
-  const npm = data.metrics.sales.map((salesValue, index) =>
-    calculateMargin(data.metrics.netProfit[index], salesValue)
-  );
-
-  marginChart = new Chart(marginChartEl, {
-    type: "line",
-    data: {
-      labels,
-      datasets: [
-        { label: "Operating Margin %", data: opm, borderColor: "#f5a524" },
-        { label: "Net Margin %", data: npm, borderColor: "#dc2626" },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-    },
-  });
-
-  const equityValues = data.balanceSheet.equity.map((equity, index) => {
-    const reserves = data.balanceSheet.reserves[index];
-    if (!Number.isFinite(equity) && !Number.isFinite(reserves)) return null;
-    return (equity ?? 0) + (reserves ?? 0);
-  });
-  const roeSeries = data.metrics.netProfit.map((profitValue, index) =>
-    calculateMargin(profitValue, equityValues[index])
-  );
-  const roceSeries = data.metrics.netProfit.map((profitValue, index) => {
-    const borrowings = data.balanceSheet.borrowings[index];
-    const capital = (equityValues[index] ?? 0) + (borrowings ?? 0);
-    return calculateMargin(profitValue, capital);
-  });
-
-  returnChart = new Chart(returnChartEl, {
-    type: "bar",
-    data: {
-      labels,
-      datasets: [
-        { label: "ROE %", data: roeSeries, backgroundColor: "rgba(43, 108, 255, 0.6)" },
-        { label: "ROCE %", data: roceSeries, backgroundColor: "rgba(29, 143, 80, 0.6)" },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-    },
-  });
-};
-
-const buildFrameworks = (data) => {
-  const equityValues = data.balanceSheet.equity.map((equity, index) => {
-    const reserves = data.balanceSheet.reserves[index];
-    if (!Number.isFinite(equity) && !Number.isFinite(reserves)) return null;
-    return (equity ?? 0) + (reserves ?? 0);
-  });
-  const capitalEmployedSeries = equityValues.map((equity, index) => {
-    const borrowings = data.balanceSheet.borrowings[index];
-    if (!Number.isFinite(equity) && !Number.isFinite(borrowings)) return null;
-    return (equity ?? 0) + (borrowings ?? 0);
-  });
-
-  const roceSeries = data.metrics.netProfit.map((profitValue, index) =>
-    calculateMargin(profitValue, capitalEmployedSeries[index])
-  );
-  const avgRoce = getAverage(roceSeries);
-  const roceVolatility = getStdDev(roceSeries);
-  const salesCagr5 = calculateCAGR(data.metrics.sales, 5);
-  const marginSeries = data.metrics.sales.map((sales, index) =>
-    calculateMargin(data.metrics.netProfit[index], sales)
-  );
-  const marginVolatility = getStdDev(marginSeries);
-  const debtToEquitySeries = data.balanceSheet.borrowings.map((borrowings, index) =>
-    calculateRatio(borrowings, equityValues[index])
-  );
-  const latestDebtToEquity = getLatestValue(debtToEquitySeries);
-
-  const moatRoceScore = scoreFromThresholds(avgRoce, [
-    { min: 8, points: 10 },
-    { min: 12, points: 20 },
-    { min: 18, points: 30 },
-  ]);
-  const moatGrowthScore = scoreFromThresholds(salesCagr5, [
-    { min: 5, points: 8 },
-    { min: 10, points: 15 },
-    { min: 15, points: 20 },
-  ]);
-  const moatMarginStabilityScore = scoreFromInverseThresholds(marginVolatility, [
-    { max: 8, points: 8 },
-    { max: 6, points: 12 },
-    { max: 4, points: 18 },
-  ]);
-  const moatLeverageScore = scoreFromInverseThresholds(latestDebtToEquity, [
-    { max: 1.2, points: 8 },
-    { max: 0.8, points: 12 },
-    { max: 0.4, points: 16 },
-  ]);
-  const moatScore = moatRoceScore + moatGrowthScore + moatMarginStabilityScore + moatLeverageScore;
-  moatScoreEl.textContent = formatScore(moatScore, 84);
-
-  renderMetricList(moatBreakdownEl, [
-    { label: "Avg ROCE", value: formatPercent(avgRoce) },
-    { label: "ROCE Volatility", value: formatPercent(roceVolatility) },
-    { label: "Sales CAGR (5Y)", value: formatPercent(salesCagr5) },
-    { label: "Margin Volatility", value: formatPercent(marginVolatility) },
-    { label: "Debt-to-Equity (Latest)", value: formatRatio(latestDebtToEquity) },
-  ]);
-
-  const grossCapexSeries = data.cashFlow.cfi.map((cfi) => (Number.isFinite(cfi) ? Math.max(-cfi, 0) : null));
-  const maintenanceCapexSeries = grossCapexSeries.map((grossCapex, index) => {
-    const depreciation = data.metrics.depreciation[index];
-    if (!Number.isFinite(grossCapex) || !Number.isFinite(depreciation)) return null;
-    return Math.min(grossCapex, Math.max(depreciation, 0));
-  });
-  const growthCapexSeries = grossCapexSeries.map((grossCapex, index) => {
-    const maintenance = maintenanceCapexSeries[index];
-    if (!Number.isFinite(grossCapex) || !Number.isFinite(maintenance)) return null;
-    return Math.max(grossCapex - maintenance, 0);
-  });
-  const latestGrossCapex = getLatestValue(grossCapexSeries);
-  const latestMaintenanceCapex = getLatestValue(maintenanceCapexSeries);
-  const latestGrowthCapex = getLatestValue(growthCapexSeries);
-  const maintenanceShare = calculateMargin(latestMaintenanceCapex, latestGrossCapex);
-  const growthShare = calculateMargin(latestGrowthCapex, latestGrossCapex);
-
-  renderMetricList(capexSplitEl, [
-    { label: "Gross Capex (Latest)", value: formatNumber(latestGrossCapex) },
-    { label: "Maintenance Capex (Proxy)", value: formatNumber(latestMaintenanceCapex) },
-    { label: "Growth Capex (Proxy)", value: formatNumber(latestGrowthCapex) },
-    { label: "Maintenance Share", value: formatPercent(maintenanceShare) },
-    { label: "Growth Share", value: formatPercent(growthShare) },
-  ]);
-
-  const nopatSeries = data.metrics.pbt.map((pbt, index) => {
-    const tax = data.metrics.tax[index];
-    if (!Number.isFinite(pbt) && !Number.isFinite(tax)) return null;
-    return (pbt ?? 0) - (tax ?? 0);
-  });
-  const incrementalRoic3y = calculateIncrementalRatio(nopatSeries, capitalEmployedSeries, 3);
-  const incrementalRoic5y = calculateIncrementalRatio(nopatSeries, capitalEmployedSeries, 5);
-  const reinvestmentRate = calculateRatio(getLatestValue(growthCapexSeries), getLatestValue(data.metrics.netProfit));
-
-  renderMetricList(incrementalRoicEl, [
-    {
-      label: "Incremental ROIC (3Y)",
-      value: formatPercent(Number.isFinite(incrementalRoic3y) ? incrementalRoic3y * 100 : null),
-    },
-    {
-      label: "Incremental ROIC (5Y)",
-      value: formatPercent(Number.isFinite(incrementalRoic5y) ? incrementalRoic5y * 100 : null),
-    },
-    {
-      label: "Growth Reinvestment Rate",
-      value: formatPercent(Number.isFinite(reinvestmentRate) ? reinvestmentRate * 100 : null),
-    },
-  ]);
-
-  const cfoSeries = data.cashFlow.cfo;
-  const cashConversion = calculateRatio(getLatestValue(cfoSeries), getLatestValue(data.metrics.netProfit));
-  const dividendPayout = calculateRatio(getLatestValue(data.metrics.dividend), getLatestValue(data.metrics.netProfit));
-  const balanceSheetDiscipline = scoreFromInverseThresholds(latestDebtToEquity, [
-    { max: 1.2, points: 10 },
-    { max: 0.8, points: 15 },
-    { max: 0.4, points: 20 },
-  ]);
-  const reinvestmentScore = scoreFromThresholds(Number.isFinite(incrementalRoic3y) ? incrementalRoic3y * 100 : null, [
-    { min: 8, points: 10 },
-    { min: 12, points: 15 },
-    { min: 18, points: 20 },
-  ]);
-  const cashConversionScore = scoreFromThresholds(cashConversion, [
-    { min: 0.7, points: 10 },
-    { min: 1, points: 15 },
-    { min: 1.2, points: 20 },
-  ]);
-  const payoutBalanceScore = Number.isFinite(dividendPayout)
-    ? (dividendPayout >= 0.1 && dividendPayout <= 0.6 ? 20 : 10)
-    : 0;
-  const capitalAllocationScore = reinvestmentScore + cashConversionScore + balanceSheetDiscipline + payoutBalanceScore;
-  capitalAllocationScoreEl.textContent = formatScore(capitalAllocationScore, 80);
-
-  renderMetricList(capitalAllocationBreakdownEl, [
-    { label: "Cash Conversion (CFO/Profit)", value: formatRatio(cashConversion) },
-    {
-      label: "Dividend Payout (Latest)",
-      value: formatPercent(Number.isFinite(dividendPayout) ? dividendPayout * 100 : null),
-    },
-    { label: "Debt-to-Equity (Latest)", value: formatRatio(latestDebtToEquity) },
-    {
-      label: "Reinvestment Efficiency",
-      value: formatPercent(Number.isFinite(incrementalRoic3y) ? incrementalRoic3y * 100 : null),
-    },
-  ]);
-
-  const medianMargin = getMedian(marginSeries);
-  const medianRoce = getMedian(roceSeries);
-  const marginExpansion = (() => {
-    const points = getSeriesFirstAndLast(marginSeries);
-    if (!points) return null;
-    return points.last - points.first;
-  })();
-  const leverageTrend = (() => {
-    const points = getSeriesFirstAndLast(debtToEquitySeries);
-    if (!points) return null;
-    return points.last - points.first;
-  })();
-
-  renderMetricList(valueDriversEl, [
-    { label: "Growth Driver (Sales CAGR 5Y)", value: formatPercent(salesCagr5) },
-    { label: "Margin Structure (Median NPM)", value: formatPercent(medianMargin) },
-    { label: "Return Structure (Median ROCE)", value: formatPercent(medianRoce) },
-    { label: "Margin Expansion Trend", value: formatPercent(marginExpansion) },
-    { label: "Leverage Trend", value: formatRatio(leverageTrend) },
-  ]);
-
-  const rmToSalesSeries = data.metrics.rawMaterial.map((rawMaterial, index) =>
-    calculateMargin(rawMaterial, data.metrics.sales[index])
-  );
-  const latestRmRatio = getLatestValue(rmToSalesSeries);
-  const avgRmRatio = getAverage(rmToSalesSeries);
-  const rmTrend = (() => {
-    const points = getSeriesFirstAndLast(rmToSalesSeries);
-    if (!points) return null;
-    return points.last - points.first;
-  })();
-  const stressMargin = Number.isFinite(latestRmRatio)
-    ? latestRmRatio * 1.1
-    : null;
-
-  renderMetricList(rawMaterialSensitivityEl, [
-    { label: "Raw Material / Sales (Latest)", value: formatPercent(latestRmRatio) },
-    { label: "Raw Material / Sales (Average)", value: formatPercent(avgRmRatio) },
-    { label: "Raw Material Trend", value: formatPercent(rmTrend) },
-    { label: "+10% RM Shock (proxy ratio)", value: formatPercent(stressMargin) },
-  ]);
-
-  const valueMigrationLabel = (() => {
-    if (!Number.isFinite(marginExpansion) || !Number.isFinite(leverageTrend) || !Number.isFinite(avgRoce)) return "-";
-    if (marginExpansion > 1 && leverageTrend <= 0 && avgRoce >= 15) return "Value Accretive";
-    if (marginExpansion >= 0 && leverageTrend <= 0.2 && avgRoce >= 10) return "Neutral";
-    return "Value Dilutive";
-  })();
-  const marketCapPerProfit = calculateRatio(data.meta.marketCap, getLatestValue(data.metrics.netProfit));
-
-  renderMetricList(valueMigrationEl, [
-    { label: "Migration Assessment", value: valueMigrationLabel },
-    { label: "Margin Expansion", value: formatPercent(marginExpansion) },
-    { label: "Leverage Drift", value: formatRatio(leverageTrend) },
-    { label: "Market Cap / Profit", value: formatRatio(marketCapPerProfit) },
-  ]);
-
-  const growthQualityScore = scoreFromThresholds(salesCagr5, [
-    { min: 5, points: 10 },
-    { min: 10, points: 20 },
-    { min: 15, points: 25 },
-  ]);
-  const returnQualityScore = scoreFromThresholds(avgRoce, [
-    { min: 8, points: 10 },
-    { min: 12, points: 20 },
-    { min: 18, points: 25 },
-  ]);
-  const cashQualityScore = scoreFromThresholds(cashConversion, [
-    { min: 0.7, points: 10 },
-    { min: 1, points: 20 },
-    { min: 1.2, points: 25 },
-  ]);
-  const balanceSheetQualityScore = scoreFromInverseThresholds(latestDebtToEquity, [
-    { max: 1.2, points: 10 },
-    { max: 0.8, points: 20 },
-    { max: 0.4, points: 25 },
-  ]);
-  const qualityScore = clamp(
-    growthQualityScore + returnQualityScore + cashQualityScore + balanceSheetQualityScore,
-    0,
-    100
-  );
-  qualityScoreEl.textContent = formatScore(qualityScore, 100);
-
-  renderMetricList(qualityBreakdownEl, [
-    { label: "Growth Quality", value: `${growthQualityScore}/25` },
-    { label: "Return Quality", value: `${returnQualityScore}/25` },
-    { label: "Cash Quality", value: `${cashQualityScore}/25` },
-    { label: "Balance Sheet Quality", value: `${balanceSheetQualityScore}/25` },
-  ]);
-};
-
-const validateWorkbook = (workbook) => {
-  const sheetNames = workbook.SheetNames;
-  const missing = REQUIRED_SHEETS.filter((sheet) => !sheetNames.includes(sheet));
-  if (missing.length) {
-    return `Missing required sheets: ${missing.join(", ")}`;
-  }
-  return null;
-};
-
-const handleFile = async (file) => {
-  uploadStatus.textContent = "Parsing file...";
-  try {
-    const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data, { type: "array" });
-    const validationError = validateWorkbook(workbook);
-    if (validationError) {
-      uploadStatus.textContent = validationError;
-      return;
+});
+
+// File Upload Handler
+async function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('welcomeScreen').classList.add('hidden');
+    document.getElementById('loadingState').classList.remove('hidden');
+    
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        
+        // Parse the Excel file
+        companyData = parseExcelData(workbook);
+        
+        // Display data
+        displayDashboard();
+        
+    } catch (error) {
+        console.error('Error parsing file:', error);
+        alert('Error parsing Excel file. Please ensure it\'s a valid screener.in export.');
+        document.getElementById('loadingState').classList.add('hidden');
+        document.getElementById('welcomeScreen').classList.remove('hidden');
     }
+}
 
-    const dataSheet = workbook.Sheets["Data Sheet"];
+// Parse Excel Data
+function parseExcelData(workbook) {
+    const dataSheet = workbook.Sheets['Data Sheet'];
     if (!dataSheet) {
-      uploadStatus.textContent = "Could not find 'Data Sheet'.";
-      return;
+        throw new Error('Data Sheet not found');
     }
+    
+    // Convert sheet to array of arrays
+    const raw = XLSX.utils.sheet_to_json(dataSheet, { header: 1, defval: null });
+    
+    // Extract company meta
+    const meta = {
+        name: raw[0][1] || 'Unknown Company',
+        faceValue: raw[6][1] || null,
+        currentPrice: raw[7][1] || null,
+        marketCap: raw[8][1] || null
+    };
+    
+    // Extract annual data
+    const reportDates = (raw[15] || []).slice(4).filter(d => d);
+    const years = reportDates.map(d => new Date(d).getFullYear());
+    
+    const annual = {
+        years: years,
+        dates: reportDates,
+        sales: extractRow(raw, 16),
+        rawMaterial: extractRow(raw, 17),
+        changeInventory: extractRow(raw, 18),
+        powerFuel: extractRow(raw, 19),
+        otherMfg: extractRow(raw, 20),
+        employeeCost: extractRow(raw, 21),
+        sellingAdmin: extractRow(raw, 22),
+        otherExpenses: extractRow(raw, 23),
+        otherIncome: extractRow(raw, 24),
+        depreciation: extractRow(raw, 25),
+        interest: extractRow(raw, 26),
+        pbt: extractRow(raw, 27),
+        tax: extractRow(raw, 28),
+        netProfit: extractRow(raw, 29),
+        dividend: extractRow(raw, 30),
+        
+        // Balance Sheet
+        equity: extractRow(raw, 56),
+        reserves: extractRow(raw, 57),
+        borrowings: extractRow(raw, 58),
+        otherLiabilities: extractRow(raw, 59),
+        totalLiabilities: extractRow(raw, 60),
+        netBlock: extractRow(raw, 61),
+        cwip: extractRow(raw, 62),
+        investments: extractRow(raw, 63),
+        otherAssets: extractRow(raw, 64),
+        totalAssets: extractRow(raw, 65),
+        receivables: extractRow(raw, 66),
+        inventory: extractRow(raw, 67),
+        cash: extractRow(raw, 68),
+        shares: extractRow(raw, 69),
+        
+        // Cash Flow
+        cfo: extractRow(raw, 81),
+        cfi: extractRow(raw, 82),
+        cff: extractRow(raw, 83),
+        netCashFlow: extractRow(raw, 84),
+        
+        // Prices
+        prices: extractRow(raw, 89)
+    };
+    
+    return { meta, annual };
+}
 
-    const parsed = parseDataSheet(dataSheet);
-    if (parsed.dates.length < 2) {
-      uploadStatus.textContent = "Insufficient data: This file has fewer than 2 years of data.";
+function extractRow(raw, rowIndex) {
+    if (!raw[rowIndex]) return [];
+    return raw[rowIndex].slice(4).map(v => {
+        if (v === null || v === undefined || v === '') return null;
+        const num = parseFloat(v);
+        return isNaN(num) ? null : num;
+    });
+}
+
+// Display Dashboard
+function displayDashboard() {
+    document.getElementById('loadingState').classList.add('hidden');
+    document.getElementById('companyHeader').classList.remove('hidden');
+    document.getElementById('mainContent').classList.remove('hidden');
+    
+    // Update company header
+    document.getElementById('companyName').textContent = companyData.meta.name;
+    document.getElementById('currentPrice').textContent = formatCurrency(companyData.meta.currentPrice);
+    document.getElementById('marketCap').textContent = formatLargeNumber(companyData.meta.marketCap) + ' Cr';
+    document.getElementById('latestYear').textContent = companyData.annual.years[companyData.annual.years.length - 1] || '-';
+    
+    // Calculate and display all metrics
+    calculateAndDisplayMetrics();
+    
+    // Display financial statements
+    displayFinancialStatements();
+    
+    // Display charts
+    displayCharts();
+}
+
+// Calculate and Display Metrics
+function calculateAndDisplayMetrics() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    // Growth Metrics
+    const salesCAGR5 = calculateCAGR(annual.sales, 5);
+    const salesCAGR10 = calculateCAGR(annual.sales, 10);
+    const profitCAGR5 = calculateCAGR(annual.netProfit, 5);
+    const profitCAGR10 = calculateCAGR(annual.netProfit, 10);
+    
+    document.getElementById('salesCAGR5').textContent = formatPercent(salesCAGR5);
+    document.getElementById('salesCAGR10').textContent = formatPercent(salesCAGR10);
+    document.getElementById('profitCAGR5').textContent = formatPercent(profitCAGR5);
+    document.getElementById('profitCAGR10').textContent = formatPercent(profitCAGR10);
+    
+    // Profitability Ratios (Latest Year)
+    const latestSales = annual.sales[n-1];
+    const latestProfit = annual.netProfit[n-1];
+    const latestEquity = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+    const prevEquity = (annual.equity[n-2] || 0) + (annual.reserves[n-2] || 0);
+    const avgEquity = (latestEquity + prevEquity) / 2;
+    
+    const latestDebt = annual.borrowings[n-1] || 0;
+    const capitalEmployed = avgEquity + latestDebt;
+    
+    const ebit = (annual.pbt[n-1] || 0) + (annual.interest[n-1] || 0);
+    
+    const roe = avgEquity > 0 ? (latestProfit / avgEquity) * 100 : null;
+    const roce = capitalEmployed > 0 ? (ebit / capitalEmployed) * 100 : null;
+    
+    // Operating Profit = Sales - Operating Expenses
+    const operatingProfit = latestSales - 
+        (annual.rawMaterial[n-1] || 0) - 
+        (annual.changeInventory[n-1] || 0) -
+        (annual.powerFuel[n-1] || 0) -
+        (annual.otherMfg[n-1] || 0) -
+        (annual.employeeCost[n-1] || 0) -
+        (annual.sellingAdmin[n-1] || 0) -
+        (annual.otherExpenses[n-1] || 0);
+    
+    const opm = latestSales > 0 ? (operatingProfit / latestSales) * 100 : null;
+    const npm = latestSales > 0 ? (latestProfit / latestSales) * 100 : null;
+    
+    document.getElementById('roeLatest').textContent = formatPercent(roe);
+    document.getElementById('roceLatest').textContent = formatPercent(roce);
+    document.getElementById('opmLatest').textContent = formatPercent(opm);
+    document.getElementById('npmLatest').textContent = formatPercent(npm);
+    
+    // Apply color coding
+    setMetricColor('roeLatest', roe, 18);
+    setMetricColor('roceLatest', roce, 15);
+    setMetricColor('salesCAGR5', salesCAGR5, 12);
+    setMetricColor('profitCAGR5', profitCAGR5, 15);
+    
+    // Quality Score
+    const qualityScore = calculateQualityScore();
+    displayQualityScore(qualityScore);
+    
+    // Red Flags
+    const redFlags = detectRedFlags();
+    displayRedFlags(redFlags);
+    
+    // DuPont Analysis
+    displayDuPontAnalysis();
+    
+    // Efficiency Metrics
+    displayEfficiencyMetrics();
+    
+    // Leverage Metrics
+    displayLeverageMetrics();
+    
+    // Moat Analysis
+    displayMoatAnalysis();
+    
+    // Capital Allocation
+    displayCapitalAllocation();
+    
+    // Value Migration
+    displayValueMigration();
+}
+
+// Calculate CAGR
+function calculateCAGR(data, years) {
+    if (!data || data.length < years + 1) return null;
+    
+    const endValue = data[data.length - 1];
+    const startValue = data[data.length - 1 - years];
+    
+    if (!endValue || !startValue || endValue <= 0 || startValue <= 0) return null;
+    
+    return (Math.pow(endValue / startValue, 1 / years) - 1) * 100;
+}
+
+// Quality Score Calculation (100 points)
+function calculateQualityScore() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    let score = 0;
+    const breakdown = {};
+    
+    // 1. Profitability Quality (20 points)
+    let profitabilityScore = 0;
+    
+    // a) Consistent profitability (10 pts)
+    const profitableYears = annual.netProfit.filter(p => p && p > 0).length;
+    if (profitableYears >= 10) profitabilityScore += 10;
+    else if (profitableYears >= 7) profitabilityScore += 7;
+    else if (profitableYears >= 5) profitabilityScore += 5;
+    
+    // b) High & stable margins (10 pts)
+    const margins = annual.sales.map((s, i) => {
+        if (!s || s === 0) return null;
+        const profit = annual.netProfit[i];
+        const rm = annual.rawMaterial[i] || 0;
+        const other = (annual.powerFuel[i] || 0) + (annual.otherMfg[i] || 0) + 
+                      (annual.employeeCost[i] || 0) + (annual.sellingAdmin[i] || 0);
+        const opProfit = s - rm - other;
+        return (opProfit / s) * 100;
+    }).filter(m => m !== null);
+    
+    const avgMargin = margins.reduce((a, b) => a + b, 0) / margins.length;
+    const stdDev = Math.sqrt(margins.reduce((sum, m) => sum + Math.pow(m - avgMargin, 2), 0) / margins.length);
+    
+    if (avgMargin > 15 && stdDev < 3) profitabilityScore += 10;
+    else if (avgMargin > 10 && stdDev < 5) profitabilityScore += 6;
+    else if (avgMargin > 5) profitabilityScore += 3;
+    
+    breakdown.profitability = profitabilityScore;
+    score += profitabilityScore;
+    
+    // 2. Returns Quality (20 points)
+    let returnsScore = 0;
+    
+    // Calculate ROCE for latest year
+    const latestEquity = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+    const prevEquity = (annual.equity[n-2] || 0) + (annual.reserves[n-2] || 0);
+    const avgEquity = (latestEquity + prevEquity) / 2;
+    const latestDebt = annual.borrowings[n-1] || 0;
+    const capitalEmployed = avgEquity + latestDebt;
+    const ebit = (annual.pbt[n-1] || 0) + (annual.interest[n-1] || 0);
+    const latestROCE = capitalEmployed > 0 ? (ebit / capitalEmployed) * 100 : null;
+    
+    if (latestROCE && latestROCE > 25) returnsScore += 10;
+    else if (latestROCE && latestROCE > 18) returnsScore += 7;
+    else if (latestROCE && latestROCE > 12) returnsScore += 4;
+    
+    // ROCE trend
+    if (n >= 5) {
+        const oldEquity = (annual.equity[n-6] || 0) + (annual.reserves[n-6] || 0);
+        const oldDebt = annual.borrowings[n-6] || 0;
+        const oldCapital = oldEquity + oldDebt;
+        const oldEbit = (annual.pbt[n-6] || 0) + (annual.interest[n-6] || 0);
+        const oldROCE = oldCapital > 0 ? (oldEbit / oldCapital) * 100 : null;
+        
+        if (latestROCE && oldROCE && latestROCE > oldROCE + 2) returnsScore += 10;
+        else if (latestROCE && oldROCE && Math.abs(latestROCE - oldROCE) <= 2) returnsScore += 6;
+    }
+    
+    breakdown.returns = returnsScore;
+    score += returnsScore;
+    
+    // 3. Cash Flow Quality (20 points)
+    let cashFlowScore = 0;
+    
+    // CFO / Net Income
+    const latestCFO = annual.cfo[n-1];
+    const latestProfit = annual.netProfit[n-1];
+    const cfoRatio = latestProfit > 0 ? (latestCFO / latestProfit) * 100 : null;
+    
+    if (cfoRatio && cfoRatio > 100) cashFlowScore += 10;
+    else if (cfoRatio && cfoRatio > 80) cashFlowScore += 7;
+    else if (cfoRatio && cfoRatio > 60) cashFlowScore += 4;
+    
+    // FCF / Sales
+    const latestSales = annual.sales[n-1];
+    const capex = Math.abs(annual.cfi[n-1] || 0); // Simplified
+    const fcf = latestCFO - capex;
+    const fcfMargin = latestSales > 0 ? (fcf / latestSales) * 100 : null;
+    
+    if (fcfMargin && fcfMargin > 10) cashFlowScore += 10;
+    else if (fcfMargin && fcfMargin > 5) cashFlowScore += 6;
+    else if (fcfMargin && fcfMargin > 0) cashFlowScore += 3;
+    
+    breakdown.cashFlow = cashFlowScore;
+    score += cashFlowScore;
+    
+    // 4. Balance Sheet Quality (20 points)
+    let balanceSheetScore = 0;
+    
+    // Debt to Equity
+    const debtToEquity = latestEquity > 0 ? latestDebt / latestEquity : null;
+    
+    if (debtToEquity !== null && debtToEquity < 0.3) balanceSheetScore += 10;
+    else if (debtToEquity !== null && debtToEquity < 0.7) balanceSheetScore += 6;
+    else if (debtToEquity !== null && debtToEquity < 1.5) balanceSheetScore += 3;
+    
+    // Working Capital Efficiency (simplified CCC)
+    const latestReceivables = annual.receivables[n-1] || 0;
+    const latestInventory = annual.inventory[n-1] || 0;
+    const cogs = (annual.rawMaterial[n-1] || 0) + (annual.otherMfg[n-1] || 0);
+    
+    const debtorDays = latestSales > 0 ? (latestReceivables / latestSales) * 365 : null;
+    const inventoryDays = cogs > 0 ? (latestInventory / cogs) * 365 : null;
+    const ccc = debtorDays + inventoryDays; // Simplified, missing creditor days
+    
+    if (ccc && ccc < 60) balanceSheetScore += 10;
+    else if (ccc && ccc < 90) balanceSheetScore += 7;
+    else if (ccc && ccc < 120) balanceSheetScore += 4;
+    
+    breakdown.balanceSheet = balanceSheetScore;
+    score += balanceSheetScore;
+    
+    // 5. Growth Quality (20 points)
+    let growthScore = 0;
+    
+    const salesCAGR5 = calculateCAGR(annual.sales, Math.min(5, n - 1));
+    const profitCAGR5 = calculateCAGR(annual.netProfit, Math.min(5, n - 1));
+    
+    if (salesCAGR5 && salesCAGR5 > 20) growthScore += 10;
+    else if (salesCAGR5 && salesCAGR5 > 12) growthScore += 7;
+    else if (salesCAGR5 && salesCAGR5 > 7) growthScore += 4;
+    
+    // Profit leverage
+    if (profitCAGR5 && salesCAGR5 && profitCAGR5 > salesCAGR5 + 5) growthScore += 10;
+    else if (profitCAGR5 && salesCAGR5 && Math.abs(profitCAGR5 - salesCAGR5) <= 5) growthScore += 6;
+    else if (profitCAGR5) growthScore += 2;
+    
+    breakdown.growth = growthScore;
+    score += growthScore;
+    
+    return { total: score, breakdown };
+}
+
+// Display Quality Score
+function displayQualityScore(qualityScore) {
+    const { total, breakdown } = qualityScore;
+    
+    document.getElementById('qualityScore').textContent = total;
+    
+    let rating = 'Low Quality';
+    let ratingClass = 'low';
+    
+    if (total >= 90) { rating = 'Exceptional'; ratingClass = 'excellent'; }
+    else if (total >= 75) { rating = 'High Quality'; ratingClass = 'high'; }
+    else if (total >= 60) { rating = 'Above Average'; ratingClass = 'above-avg'; }
+    else if (total >= 40) { rating = 'Average'; ratingClass = 'average'; }
+    
+    const ratingEl = document.getElementById('qualityRating');
+    ratingEl.textContent = rating;
+    ratingEl.className = 'rating ' + ratingClass;
+    
+    // Breakdown
+    const breakdownHTML = `
+        <div class="dimension">
+            <span class="dimension-label">Profitability</span>
+            <span class="dimension-score">${breakdown.profitability}/20</span>
+        </div>
+        <div class="dimension">
+            <span class="dimension-label">Returns</span>
+            <span class="dimension-score">${breakdown.returns}/20</span>
+        </div>
+        <div class="dimension">
+            <span class="dimension-label">Cash Flow</span>
+            <span class="dimension-score">${breakdown.cashFlow}/20</span>
+        </div>
+        <div class="dimension">
+            <span class="dimension-label">Balance Sheet</span>
+            <span class="dimension-score">${breakdown.balanceSheet}/20</span>
+        </div>
+        <div class="dimension">
+            <span class="dimension-label">Growth</span>
+            <span class="dimension-score">${breakdown.growth}/20</span>
+        </div>
+    `;
+    
+    document.getElementById('qualityBreakdown').innerHTML = breakdownHTML;
+}
+
+// Detect Red Flags
+function detectRedFlags() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    const flags = [];
+    
+    if (n < 3) return flags;
+    
+    // 1. Receivables growing faster than sales
+    const salesGrowth = ((annual.sales[n-1] - annual.sales[n-3]) / annual.sales[n-3]) * 100;
+    const receivablesGrowth = ((annual.receivables[n-1] - annual.receivables[n-3]) / annual.receivables[n-3]) * 100;
+    
+    if (receivablesGrowth > salesGrowth + 10) {
+        flags.push({
+            title: 'Receivables Growing Faster Than Sales',
+            description: `Receivables grew ${receivablesGrowth.toFixed(1)}% vs Sales ${salesGrowth.toFixed(1)}%`,
+            severity: 'high'
+        });
+    }
+    
+    // 2. Inventory buildup
+    const inventoryGrowth = ((annual.inventory[n-1] - annual.inventory[n-3]) / annual.inventory[n-3]) * 100;
+    
+    if (inventoryGrowth > salesGrowth + 15) {
+        flags.push({
+            title: 'Inventory Buildup',
+            description: `Inventory grew ${inventoryGrowth.toFixed(1)}% vs Sales ${salesGrowth.toFixed(1)}%`,
+            severity: 'medium'
+        });
+    }
+    
+    // 3. Other Income > 50% of Operating Profit
+    const latestSales = annual.sales[n-1];
+    const opProfit = latestSales - (annual.rawMaterial[n-1] || 0) - (annual.employeeCost[n-1] || 0) - 
+                     (annual.sellingAdmin[n-1] || 0);
+    const otherIncome = annual.otherIncome[n-1] || 0;
+    
+    if (otherIncome > opProfit * 0.5) {
+        flags.push({
+            title: 'High Other Income',
+            description: `Other Income is ${((otherIncome/opProfit)*100).toFixed(0)}% of Operating Profit`,
+            severity: 'medium'
+        });
+    }
+    
+    // 4. CWIP > 30% of Gross Block
+    const cwip = annual.cwip[n-1] || 0;
+    const netBlock = annual.netBlock[n-1] || 0;
+    const grossBlock = netBlock * 1.5; // Approximation
+    
+    if (cwip > grossBlock * 0.3) {
+        flags.push({
+            title: 'High CWIP',
+            description: `CWIP is ${((cwip/grossBlock)*100).toFixed(0)}% of Gross Block`,
+            severity: 'medium'
+        });
+    }
+    
+    // 5. Debt surge with declining ROCE
+    if (n >= 3) {
+        const debtGrowth = ((annual.borrowings[n-1] - annual.borrowings[n-3]) / (annual.borrowings[n-3] || 1)) * 100;
+        const latestEquity = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+        const oldEquity = (annual.equity[n-3] || 0) + (annual.reserves[n-3] || 0);
+        
+        const latestROCE = ((annual.pbt[n-1] || 0) + (annual.interest[n-1] || 0)) / (latestEquity + (annual.borrowings[n-1] || 0)) * 100;
+        const oldROCE = ((annual.pbt[n-3] || 0) + (annual.interest[n-3] || 0)) / (oldEquity + (annual.borrowings[n-3] || 0)) * 100;
+        
+        if (debtGrowth > 20 && latestROCE < oldROCE) {
+            flags.push({
+                title: 'Debt Surge with Declining ROCE',
+                description: `Debt up ${debtGrowth.toFixed(0)}% while ROCE declined`,
+                severity: 'high'
+            });
+        }
+    }
+    
+    return flags;
+}
+
+// Display Red Flags
+function displayRedFlags(flags) {
+    const countEl = document.getElementById('redFlagsCount');
+    countEl.querySelector('.count').textContent = flags.length;
+    
+    if (flags.length === 0) {
+        countEl.className = 'flags-count clean';
+        document.getElementById('redFlagsList').innerHTML = '<div style="color: var(--accent-success); text-align: center; padding: 2rem;">✓ Clean Balance Sheet - No Red Flags Detected</div>';
+    } else if (flags.length <= 2) {
+        countEl.className = 'flags-count caution';
     } else {
-      uploadStatus.textContent = `Loaded ${file.name}`;
+        countEl.className = 'flags-count danger';
     }
-
-    updateOverview(parsed);
-    buildPLTable(parsed);
-    buildBSTable(parsed);
-    buildCFTable(parsed);
-    buildAnalysis(parsed);
-    buildCharts(parsed);
-    buildFrameworks(parsed);
-  } catch (error) {
-    uploadStatus.textContent = "Could not parse Excel file. Please ensure it's a screener.in export.";
-    console.error(error);
-  }
-};
-
-fileInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  if (!file.name.endsWith(".xlsx")) {
-    uploadStatus.textContent = "Please upload a valid .xlsx file.";
-    return;
-  }
-  handleFile(file);
-});
-
-TAB_BUTTONS.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (button.disabled) return;
-    TAB_BUTTONS.forEach((btn) => btn.classList.remove("active"));
-    TAB_PANELS.forEach((panel) => panel.classList.remove("active"));
-    button.classList.add("active");
-    const panel = document.getElementById(button.dataset.tab);
-    if (panel) {
-      panel.classList.add("active");
+    
+    const flagsHTML = flags.map(flag => `
+        <div class="flag-item">
+            <div class="flag-icon">⚠️</div>
+            <div class="flag-content">
+                <div class="flag-title">${flag.title}</div>
+                <div class="flag-description">${flag.description}</div>
+            </div>
+        </div>
+    `).join('');
+    
+    if (flags.length > 0) {
+        document.getElementById('redFlagsList').innerHTML = flagsHTML;
     }
-  });
-});
+}
+
+// DuPont Analysis
+function displayDuPontAnalysis() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    const latestSales = annual.sales[n-1];
+    const latestProfit = annual.netProfit[n-1];
+    const latestAssets = annual.totalAssets[n-1];
+    const latestEquity = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+    const prevEquity = (annual.equity[n-2] || 0) + (annual.reserves[n-2] || 0);
+    const avgEquity = (latestEquity + prevEquity) / 2;
+    
+    const netMargin = latestSales > 0 ? (latestProfit / latestSales) * 100 : null;
+    const assetTurnover = latestAssets > 0 ? latestSales / latestAssets : null;
+    const equityMultiplier = avgEquity > 0 ? latestAssets / avgEquity : null;
+    const roe = avgEquity > 0 ? (latestProfit / avgEquity) * 100 : null;
+    
+    const html = `
+        <div class="dupont-breakdown">
+            <div class="dupont-factor">
+                <span class="factor-name">Net Margin</span>
+                <span class="factor-value">${formatPercent(netMargin)}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">× Asset Turnover</span>
+                <span class="factor-value">${assetTurnover ? assetTurnover.toFixed(2) + 'x' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">× Equity Multiplier</span>
+                <span class="factor-value">${equityMultiplier ? equityMultiplier.toFixed(2) + 'x' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor" style="border-top: 2px solid var(--border-color); margin-top: 1rem; padding-top: 1rem;">
+                <span class="factor-name" style="font-weight: 700;">= ROE</span>
+                <span class="factor-value" style="color: var(--accent-primary); font-size: 1.5rem;">${formatPercent(roe)}</span>
+            </div>
+        </div>
+        <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px; font-size: 0.9rem; color: var(--text-secondary);">
+            <strong>Interpretation:</strong> 
+            ${netMargin > 15 ? 'Strong profitability indicates pricing power and operational efficiency.' : 
+              netMargin > 10 ? 'Good profitability, room for improvement.' : 
+              'Low margins suggest competitive pressures or inefficiencies.'}
+            ${assetTurnover > 2 ? ' Excellent asset utilization.' : 
+              assetTurnover > 1 ? ' Decent asset efficiency.' : 
+              ' Capital-intensive business model.'}
+        </div>
+    `;
+    
+    document.getElementById('dupontAnalysis').innerHTML = html;
+}
+
+// Efficiency Metrics
+function displayEfficiencyMetrics() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    const latestSales = annual.sales[n-1];
+    const latestAssets = annual.totalAssets[n-1];
+    const latestReceivables = annual.receivables[n-1] || 0;
+    const latestInventory = annual.inventory[n-1] || 0;
+    const cogs = (annual.rawMaterial[n-1] || 0) + (annual.otherMfg[n-1] || 0);
+    
+    const assetTurnover = latestAssets > 0 ? latestSales / latestAssets : null;
+    const debtorDays = latestSales > 0 ? (latestReceivables / latestSales) * 365 : null;
+    const inventoryDays = cogs > 0 ? (latestInventory / cogs) * 365 : null;
+    const ccc = debtorDays + inventoryDays;
+    
+    const html = `
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">Asset Turnover</span>
+                <span class="factor-value">${assetTurnover ? assetTurnover.toFixed(2) + 'x' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Debtor Days</span>
+                <span class="factor-value">${debtorDays ? Math.round(debtorDays) + ' days' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Inventory Days</span>
+                <span class="factor-value">${inventoryDays ? Math.round(inventoryDays) + ' days' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Cash Conversion Cycle</span>
+                <span class="factor-value">${ccc ? Math.round(ccc) + ' days' : 'N/A'}</span>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('efficiencyMetrics').innerHTML = html;
+}
+
+// Leverage Metrics
+function displayLeverageMetrics() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    const latestEquity = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+    const latestDebt = annual.borrowings[n-1] || 0;
+    const latestInterest = annual.interest[n-1] || 0;
+    const ebit = (annual.pbt[n-1] || 0) + latestInterest;
+    
+    const debtToEquity = latestEquity > 0 ? latestDebt / latestEquity : null;
+    const interestCoverage = latestInterest > 0 ? ebit / latestInterest : null;
+    
+    const html = `
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">Debt to Equity</span>
+                <span class="factor-value">${debtToEquity ? debtToEquity.toFixed(2) + 'x' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Interest Coverage</span>
+                <span class="factor-value">${interestCoverage ? interestCoverage.toFixed(2) + 'x' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Total Debt</span>
+                <span class="factor-value">${formatNumber(latestDebt)} Cr</span>
+            </div>
+            <div style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px; font-size: 0.85rem; color: var(--text-secondary);">
+                ${debtToEquity < 0.5 ? '✓ Conservative leverage' : 
+                  debtToEquity < 1.0 ? '⚠ Moderate leverage' : 
+                  '⚠️ High leverage - monitor carefully'}
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('leverageMetrics').innerHTML = html;
+}
+
+// Moat Analysis
+function displayMoatAnalysis() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    let moatScore = 0;
+    const indicators = [];
+    
+    // 1. Consistently High ROIC
+    let highROICYears = 0;
+    for (let i = Math.max(0, n - 7); i < n; i++) {
+        const equity = (annual.equity[i] || 0) + (annual.reserves[i] || 0);
+        const debt = annual.borrowings[i] || 0;
+        const capital = equity + debt;
+        const nopat = (annual.netProfit[i] || 0) * 1.15; // Approximation
+        const roic = capital > 0 ? (nopat / capital) * 100 : null;
+        
+        if (roic && roic > 15) highROICYears++;
+    }
+    
+    const roicPass = highROICYears >= 5;
+    if (roicPass) moatScore += 2;
+    indicators.push({ name: 'High ROIC (7+ years)', pass: roicPass, value: `${highROICYears}/7 years` });
+    
+    // 2. Pricing Power (Margin stability)
+    const margins = annual.sales.slice(-5).map((s, i) => {
+        const idx = n - 5 + i;
+        if (!s || s === 0) return null;
+        const profit = annual.netProfit[idx];
+        return (profit / s) * 100;
+    }).filter(m => m !== null);
+    
+    const marginStdDev = Math.sqrt(margins.reduce((sum, m) => {
+        const avg = margins.reduce((a, b) => a + b, 0) / margins.length;
+        return sum + Math.pow(m - avg, 2);
+    }, 0) / margins.length);
+    
+    const pricingPowerPass = marginStdDev < 3;
+    if (pricingPowerPass) moatScore += 2;
+    indicators.push({ name: 'Margin Stability', pass: pricingPowerPass, value: `σ = ${marginStdDev.toFixed(1)}%` });
+    
+    // 3. Capital Efficiency
+    const latestSales = annual.sales[n-1];
+    const latestAssets = annual.totalAssets[n-1];
+    const assetTurnover = latestAssets > 0 ? latestSales / latestAssets : null;
+    
+    const efficiencyPass = assetTurnover > 1.5;
+    if (efficiencyPass) moatScore += 2;
+    indicators.push({ name: 'Asset Efficiency', pass: efficiencyPass, value: assetTurnover ? assetTurnover.toFixed(2) + 'x' : 'N/A' });
+    
+    const moatRating = moatScore >= 5 ? 'Wide Moat' : moatScore >= 3 ? 'Narrow Moat' : 'No Moat';
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">
+                ${moatRating}
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text-secondary);">
+                Score: ${moatScore}/6
+            </div>
+        </div>
+        <div class="moat-indicators">
+            ${indicators.map(ind => `
+                <div class="indicator">
+                    <span>${ind.name}</span>
+                    <span class="indicator-status ${ind.pass ? 'pass' : 'fail'}">
+                        ${ind.pass ? '✓' : '✗'} ${ind.value}
+                    </span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+    
+    document.getElementById('moatAnalysis').innerHTML = html;
+}
+
+// Capital Allocation
+function displayCapitalAllocation() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 3) {
+        document.getElementById('capitalAllocation').innerHTML = '<p style="color: var(--text-muted);">Insufficient data (requires 3+ years)</p>';
+        return;
+    }
+    
+    // Dividend consistency
+    const dividendYears = annual.dividend.filter(d => d && d > 0).length;
+    const dividendScore = dividendYears / n >= 0.7 ? 3 : dividendYears / n >= 0.5 ? 2 : 1;
+    
+    // Average payout ratio
+    const payoutRatios = annual.dividend.map((d, i) => {
+        const profit = annual.netProfit[i];
+        if (!profit || profit <= 0) return null;
+        return (d / profit) * 100;
+    }).filter(p => p !== null);
+    
+    const avgPayout = payoutRatios.reduce((a, b) => a + b, 0) / payoutRatios.length;
+    
+    // Debt management
+    const latestDebt = annual.borrowings[n-1] || 0;
+    const oldDebt = annual.borrowings[Math.max(0, n-3)] || 0;
+    const debtGrowth = oldDebt > 0 ? ((latestDebt - oldDebt) / oldDebt) * 100 : null;
+    
+    const debtScore = latestDebt === 0 ? 3 : debtGrowth < 10 ? 2 : 1;
+    
+    const totalScore = dividendScore + debtScore;
+    const grade = totalScore >= 5 ? 'A' : totalScore >= 4 ? 'B' : totalScore >= 3 ? 'C' : 'D';
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 2rem; font-weight: 700; font-family: var(--font-mono);">
+                Grade ${grade}
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                Capital Allocation Quality
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">Dividend Consistency</span>
+                <span class="factor-value">${dividendYears}/${n} years</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Avg Payout Ratio</span>
+                <span class="factor-value">${avgPayout.toFixed(1)}%</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Debt Management</span>
+                <span class="factor-value">${latestDebt === 0 ? 'Debt Free' : debtGrowth ? debtGrowth.toFixed(1) + '% growth' : 'N/A'}</span>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('capitalAllocation').innerHTML = html;
+}
+
+// Value Migration
+function displayValueMigration() {
+    const { annual } = companyData;
+    const n = annual.years.length;
+    
+    if (n < 5) {
+        document.getElementById('valueMigration').innerHTML = '<p style="color: var(--text-muted);">Insufficient data (requires 5+ years)</p>';
+        return;
+    }
+    
+    const salesCAGR = calculateCAGR(annual.sales, 5);
+    const profitCAGR = calculateCAGR(annual.netProfit, 5);
+    
+    // Margin trend
+    const oldMargin = annual.sales[n-6] > 0 ? (annual.netProfit[n-6] / annual.sales[n-6]) * 100 : null;
+    const newMargin = annual.sales[n-1] > 0 ? (annual.netProfit[n-1] / annual.sales[n-1]) * 100 : null;
+    const marginChange = newMargin - oldMargin;
+    
+    // ROCE trend
+    const oldEquity = (annual.equity[n-6] || 0) + (annual.reserves[n-6] || 0);
+    const newEquity = (annual.equity[n-1] || 0) + (annual.reserves[n-1] || 0);
+    const oldROCE = oldEquity > 0 ? ((annual.pbt[n-6] || 0) / oldEquity) * 100 : null;
+    const newROCE = newEquity > 0 ? ((annual.pbt[n-1] || 0) / newEquity) * 100 : null;
+    const roceChange = newROCE - oldROCE;
+    
+    let direction = 'Stable';
+    let strength = 0;
+    
+    if (salesCAGR > 15 && marginChange > 2 && roceChange > 0) {
+        direction = 'Strong Inward';
+        strength = 4;
+    } else if (salesCAGR > 10 && marginChange > 0) {
+        direction = 'Inward';
+        strength = 3;
+    } else if (salesCAGR > 5) {
+        direction = 'Stable';
+        strength = 2;
+    } else {
+        direction = 'Outward';
+        strength = 1;
+    }
+    
+    const html = `
+        <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 6px;">
+            <div style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem;">
+                ${direction === 'Strong Inward' ? '🟢' : direction === 'Inward' ? '🟢' : direction === 'Stable' ? '🟡' : '🔴'} ${direction}
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary);">
+                Value Migration Direction
+            </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="dupont-factor">
+                <span class="factor-name">Sales CAGR (5Y)</span>
+                <span class="factor-value">${formatPercent(salesCAGR)}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">Margin Change</span>
+                <span class="factor-value">${marginChange ? (marginChange > 0 ? '+' : '') + marginChange.toFixed(1) + '%' : 'N/A'}</span>
+            </div>
+            <div class="dupont-factor">
+                <span class="factor-name">ROCE Change</span>
+                <span class="factor-value">${roceChange ? (roceChange > 0 ? '+' : '') + roceChange.toFixed(1) + '%' : 'N/A'}</span>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('valueMigration').innerHTML = html;
+}
+
+// Display Financial Statements
+function displayFinancialStatements() {
+    displayPLStatement();
+    displayBalanceSheet();
+    displayCashFlow();
+}
+
+function displayPLStatement() {
+    const { annual } = companyData;
+    const years = annual.years;
+    
+    const table = document.getElementById('plTable');
+    
+    // Header
+    const thead = table.querySelector('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Particulars</th>
+            ${years.map(y => `<th>FY${y}</th>`).join('')}
+        </tr>
+    `;
+    
+    // Body
+    const tbody = table.querySelector('tbody');
+    const rows = [
+        { label: 'Sales', data: annual.sales },
+        { label: 'Raw Material Cost', data: annual.rawMaterial },
+        { label: 'Employee Cost', data: annual.employeeCost },
+        { label: 'Selling & Admin', data: annual.sellingAdmin },
+        { label: 'Depreciation', data: annual.depreciation },
+        { label: 'Other Income', data: annual.otherIncome },
+        { label: 'Interest', data: annual.interest },
+        { label: 'Profit Before Tax', data: annual.pbt, class: 'total-row' },
+        { label: 'Tax', data: annual.tax },
+        { label: 'Net Profit', data: annual.netProfit, class: 'total-row' },
+        { label: 'Dividend', data: annual.dividend }
+    ];
+    
+    tbody.innerHTML = rows.map(row => `
+        <tr${row.class ? ` class="${row.class}"` : ''}>
+            <td>${row.label}</td>
+            ${row.data.map(v => `<td>${formatNumber(v)}</td>`).join('')}
+        </tr>
+    `).join('');
+}
+
+function displayBalanceSheet() {
+    const { annual } = companyData;
+    const years = annual.years;
+    
+    const table = document.getElementById('bsTable');
+    
+    // Header
+    const thead = table.querySelector('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Particulars</th>
+            ${years.map(y => `<th>FY${y}</th>`).join('')}
+        </tr>
+    `;
+    
+    // Body
+    const tbody = table.querySelector('tbody');
+    const rows = [
+        { label: 'LIABILITIES', data: [], class: 'category-row' },
+        { label: 'Equity Capital', data: annual.equity },
+        { label: 'Reserves', data: annual.reserves },
+        { label: 'Borrowings', data: annual.borrowings },
+        { label: 'Other Liabilities', data: annual.otherLiabilities },
+        { label: 'Total Liabilities', data: annual.totalLiabilities, class: 'total-row' },
+        { label: '', data: [], class: 'category-row' },
+        { label: 'ASSETS', data: [], class: 'category-row' },
+        { label: 'Fixed Assets', data: annual.netBlock },
+        { label: 'CWIP', data: annual.cwip },
+        { label: 'Investments', data: annual.investments },
+        { label: 'Receivables', data: annual.receivables },
+        { label: 'Inventory', data: annual.inventory },
+        { label: 'Cash & Bank', data: annual.cash },
+        { label: 'Other Assets', data: annual.otherAssets },
+        { label: 'Total Assets', data: annual.totalAssets, class: 'total-row' }
+    ];
+    
+    tbody.innerHTML = rows.map(row => {
+        if (row.data.length === 0) {
+            return `<tr class="${row.class || ''}"><td colspan="${years.length + 1}">${row.label}</td></tr>`;
+        }
+        return `
+            <tr${row.class ? ` class="${row.class}"` : ''}>
+                <td>${row.label}</td>
+                ${row.data.map(v => `<td>${formatNumber(v)}</td>`).join('')}
+            </tr>
+        `;
+    }).join('');
+}
+
+function displayCashFlow() {
+    const { annual } = companyData;
+    const years = annual.years;
+    
+    const table = document.getElementById('cfTable');
+    
+    // Header
+    const thead = table.querySelector('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>Particulars</th>
+            ${years.map(y => `<th>FY${y}</th>`).join('')}
+        </tr>
+    `;
+    
+    // Body
+    const tbody = table.querySelector('tbody');
+    const rows = [
+        { label: 'Operating Activities', data: annual.cfo },
+        { label: 'Investing Activities', data: annual.cfi },
+        { label: 'Financing Activities', data: annual.cff },
+        { label: 'Net Cash Flow', data: annual.netCashFlow, class: 'total-row' }
+    ];
+    
+    tbody.innerHTML = rows.map(row => `
+        <tr${row.class ? ` class="${row.class}"` : ''}>
+            <td>${row.label}</td>
+            ${row.data.map(v => `<td>${formatNumber(v)}</td>`).join('')}
+        </tr>
+    `).join('');
+}
+
+// Display Charts
+function displayCharts() {
+    createRevenueChart();
+    createMarginChart();
+    createReturnsChart();
+    createCashflowChart();
+}
+
+function createRevenueChart() {
+    const { annual } = companyData;
+    const ctx = document.getElementById('revenueChart');
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: annual.years,
+            datasets: [
+                {
+                    label: 'Revenue',
+                    data: annual.sales,
+                    borderColor: '#4fc3f7',
+                    backgroundColor: 'rgba(79, 195, 247, 0.1)',
+                    yAxisID: 'y',
+                    tension: 0.3
+                },
+                {
+                    label: 'Net Profit',
+                    data: annual.netProfit,
+                    borderColor: '#26c281',
+                    backgroundColor: 'rgba(38, 194, 129, 0.1)',
+                    yAxisID: 'y',
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    labels: { color: '#e8eaf6' }
+                }
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                },
+                x: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                }
+            }
+        }
+    });
+}
+
+function createMarginChart() {
+    const { annual } = companyData;
+    const ctx = document.getElementById('marginChart');
+    
+    const margins = annual.sales.map((s, i) => {
+        if (!s || s === 0) return null;
+        const profit = annual.netProfit[i];
+        const rm = annual.rawMaterial[i] || 0;
+        const emp = annual.employeeCost[i] || 0;
+        const sa = annual.sellingAdmin[i] || 0;
+        const opProfit = s - rm - emp - sa;
+        return (opProfit / s) * 100;
+    });
+    
+    const netMargins = annual.sales.map((s, i) => {
+        if (!s || s === 0) return null;
+        return (annual.netProfit[i] / s) * 100;
+    });
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: annual.years,
+            datasets: [
+                {
+                    label: 'Operating Margin %',
+                    data: margins,
+                    borderColor: '#f4a742',
+                    backgroundColor: 'rgba(244, 167, 66, 0.1)',
+                    tension: 0.3
+                },
+                {
+                    label: 'Net Margin %',
+                    data: netMargins,
+                    borderColor: '#26c281',
+                    backgroundColor: 'rgba(38, 194, 129, 0.1)',
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    labels: { color: '#e8eaf6' }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { 
+                        color: '#9fa8c9',
+                        callback: value => value + '%'
+                    },
+                    grid: { color: '#2a3764' }
+                },
+                x: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                }
+            }
+        }
+    });
+}
+
+function createReturnsChart() {
+    const { annual } = companyData;
+    const ctx = document.getElementById('returnsChart');
+    const n = annual.years.length;
+    
+    const roes = [];
+    const roces = [];
+    
+    for (let i = 1; i < n; i++) {
+        const equity = (annual.equity[i] || 0) + (annual.reserves[i] || 0);
+        const prevEquity = (annual.equity[i-1] || 0) + (annual.reserves[i-1] || 0);
+        const avgEquity = (equity + prevEquity) / 2;
+        
+        const debt = annual.borrowings[i] || 0;
+        const capitalEmployed = avgEquity + debt;
+        
+        const profit = annual.netProfit[i] || 0;
+        const ebit = (annual.pbt[i] || 0) + (annual.interest[i] || 0);
+        
+        roes.push(avgEquity > 0 ? (profit / avgEquity) * 100 : null);
+        roces.push(capitalEmployed > 0 ? (ebit / capitalEmployed) * 100 : null);
+    }
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: annual.years.slice(1),
+            datasets: [
+                {
+                    label: 'ROE %',
+                    data: roes,
+                    backgroundColor: 'rgba(79, 195, 247, 0.7)',
+                    borderColor: '#4fc3f7',
+                    borderWidth: 1
+                },
+                {
+                    label: 'ROCE %',
+                    data: roces,
+                    backgroundColor: 'rgba(38, 194, 129, 0.7)',
+                    borderColor: '#26c281',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    labels: { color: '#e8eaf6' }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { 
+                        color: '#9fa8c9',
+                        callback: value => value + '%'
+                    },
+                    grid: { color: '#2a3764' }
+                },
+                x: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                }
+            }
+        }
+    });
+}
+
+function createCashflowChart() {
+    const { annual } = companyData;
+    const ctx = document.getElementById('cashflowChart');
+    
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: annual.years,
+            datasets: [
+                {
+                    label: 'Operating',
+                    data: annual.cfo,
+                    backgroundColor: 'rgba(38, 194, 129, 0.7)',
+                    borderColor: '#26c281',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Investing',
+                    data: annual.cfi,
+                    backgroundColor: 'rgba(239, 83, 80, 0.7)',
+                    borderColor: '#ef5350',
+                    borderWidth: 1
+                },
+                {
+                    label: 'Financing',
+                    data: annual.cff,
+                    backgroundColor: 'rgba(244, 167, 66, 0.7)',
+                    borderColor: '#f4a742',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    labels: { color: '#e8eaf6' }
+                }
+            },
+            scales: {
+                y: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                },
+                x: {
+                    ticks: { color: '#9fa8c9' },
+                    grid: { color: '#2a3764' }
+                }
+            }
+        }
+    });
+}
+
+// Tab Switching
+function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+        if (tab.dataset.tab === tabName) {
+            tab.classList.add('active');
+        }
+    });
+    
+    // Update tab panels
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.remove('active');
+        if (panel.id === tabName) {
+            panel.classList.add('active');
+        }
+    });
+}
+
+// Utility Functions
+function formatNumber(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    return num.toFixed(2);
+}
+
+function formatLargeNumber(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    if (num >= 1000) {
+        return (num / 1000).toFixed(2) + 'K';
+    }
+    return num.toFixed(2);
+}
+
+function formatCurrency(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    return '₹' + num.toFixed(2);
+}
+
+function formatPercent(num) {
+    if (num === null || num === undefined || isNaN(num)) return '-';
+    return num.toFixed(1) + '%';
+}
+
+function setMetricColor(elementId, value, threshold) {
+    const el = document.getElementById(elementId);
+    if (value === null || value === undefined) return;
+    
+    if (value >= threshold) {
+        el.classList.add('positive');
+    } else if (value < 0) {
+        el.classList.add('negative');
+    }
+}
