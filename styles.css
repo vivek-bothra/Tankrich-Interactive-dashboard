@@ -173,6 +173,12 @@ body {
   gap: 16px;
 }
 
+.framework-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
 .snapshot,
 .analysis-card {
   background: #f8f9fd;
@@ -184,9 +190,29 @@ body {
   gap: 6px;
 }
 
+.framework-card {
+  background: #f8f9fd;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .analysis-card h3 {
   margin-bottom: 8px;
   font-size: 1rem;
+}
+
+.framework-card h3 {
+  font-size: 1rem;
+}
+
+.framework-score {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--primary);
 }
 
 .metric-list {

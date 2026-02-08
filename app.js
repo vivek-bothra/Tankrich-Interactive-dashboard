@@ -25,6 +25,18 @@ const revenueChartEl = document.getElementById("revenueChart");
 const marginChartEl = document.getElementById("marginChart");
 const returnChartEl = document.getElementById("returnChart");
 
+const moatScoreEl = document.getElementById("moatScore");
+const moatBreakdownEl = document.getElementById("moatBreakdown");
+const capexSplitEl = document.getElementById("capexSplit");
+const incrementalRoicEl = document.getElementById("incrementalRoic");
+const capitalAllocationScoreEl = document.getElementById("capitalAllocationScore");
+const capitalAllocationBreakdownEl = document.getElementById("capitalAllocationBreakdown");
+const valueDriversEl = document.getElementById("valueDrivers");
+const rawMaterialSensitivityEl = document.getElementById("rawMaterialSensitivity");
+const valueMigrationEl = document.getElementById("valueMigration");
+const qualityScoreEl = document.getElementById("qualityScore");
+const qualityBreakdownEl = document.getElementById("qualityBreakdown");
+
 const plTableEl = document.getElementById("plTable");
 const bsTableEl = document.getElementById("bsTable");
 const cfTableEl = document.getElementById("cfTable");
@@ -113,6 +125,21 @@ const getAverage = (values) => {
   return filtered.reduce((sum, val) => sum + val, 0) / filtered.length;
 };
 
+const getMedian = (values) => {
+  const filtered = values.filter((val) => Number.isFinite(val)).sort((a, b) => a - b);
+  if (!filtered.length) return null;
+  const mid = Math.floor(filtered.length / 2);
+  return filtered.length % 2 ? filtered[mid] : (filtered[mid - 1] + filtered[mid]) / 2;
+};
+
+const getStdDev = (values) => {
+  const avg = getAverage(values);
+  const filtered = values.filter((val) => Number.isFinite(val));
+  if (!Number.isFinite(avg) || filtered.length < 2) return null;
+  const variance = filtered.reduce((sum, value) => sum + ((value - avg) ** 2), 0) / filtered.length;
+  return Math.sqrt(variance);
+};
+
 const calculateCAGR = (values, years) => {
   if (!values.length || years <= 0) return null;
   const filtered = values.filter((val) => Number.isFinite(val));
@@ -128,9 +155,58 @@ const calculateRatio = (numerator, denominator) => {
   return numerator / denominator;
 };
 
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const scoreFromThresholds = (value, thresholds = []) => {
+  if (!Number.isFinite(value) || !thresholds.length) return 0;
+  let score = 0;
+  thresholds.forEach(({ min, points }) => {
+    if (value >= min) score = points;
+  });
+  return score;
+};
+
+const scoreFromInverseThresholds = (value, thresholds = []) => {
+  if (!Number.isFinite(value) || !thresholds.length) return 0;
+  let score = 0;
+  thresholds.forEach(({ max, points }) => {
+    if (value <= max) score = points;
+  });
+  return score;
+};
+
 const formatRatio = (value) => {
   if (value === null || value === undefined) return "-";
   return `${value.toFixed(2)}x`;
+};
+
+const formatScore = (value, maxScore = 100) => {
+  if (!Number.isFinite(value)) return "-";
+  return `${Math.round(value)}/${maxScore}`;
+};
+
+const getSeriesFirstAndLast = (series) => {
+  const filtered = series
+    .map((value, index) => ({ value, index }))
+    .filter(({ value }) => Number.isFinite(value));
+  if (filtered.length < 2) return null;
+  return {
+    first: filtered[0].value,
+    last: filtered[filtered.length - 1].value,
+    span: filtered[filtered.length - 1].index - filtered[0].index,
+  };
+};
+
+const calculateIncrementalRatio = (numeratorSeries, denominatorSeries, periodsBack) => {
+  const pairs = numeratorSeries
+    .map((value, index) => ({ num: value, den: denominatorSeries[index] }))
+    .filter(({ num, den }) => Number.isFinite(num) && Number.isFinite(den));
+  if (pairs.length <= periodsBack) return null;
+  const end = pairs[pairs.length - 1];
+  const start = pairs[pairs.length - 1 - periodsBack];
+  const deltaDen = end.den - start.den;
+  if (!Number.isFinite(deltaDen) || deltaDen === 0) return null;
+  return (end.num - start.num) / deltaDen;
 };
 
 const renderMetricList = (container, metrics) => {
@@ -546,6 +622,242 @@ const buildCharts = (data) => {
   });
 };
 
+const buildFrameworks = (data) => {
+  const equityValues = data.balanceSheet.equity.map((equity, index) => {
+    const reserves = data.balanceSheet.reserves[index];
+    if (!Number.isFinite(equity) && !Number.isFinite(reserves)) return null;
+    return (equity ?? 0) + (reserves ?? 0);
+  });
+  const capitalEmployedSeries = equityValues.map((equity, index) => {
+    const borrowings = data.balanceSheet.borrowings[index];
+    if (!Number.isFinite(equity) && !Number.isFinite(borrowings)) return null;
+    return (equity ?? 0) + (borrowings ?? 0);
+  });
+
+  const roceSeries = data.metrics.netProfit.map((profitValue, index) =>
+    calculateMargin(profitValue, capitalEmployedSeries[index])
+  );
+  const avgRoce = getAverage(roceSeries);
+  const roceVolatility = getStdDev(roceSeries);
+  const salesCagr5 = calculateCAGR(data.metrics.sales, 5);
+  const marginSeries = data.metrics.sales.map((sales, index) =>
+    calculateMargin(data.metrics.netProfit[index], sales)
+  );
+  const marginVolatility = getStdDev(marginSeries);
+  const debtToEquitySeries = data.balanceSheet.borrowings.map((borrowings, index) =>
+    calculateRatio(borrowings, equityValues[index])
+  );
+  const latestDebtToEquity = getLatestValue(debtToEquitySeries);
+
+  const moatRoceScore = scoreFromThresholds(avgRoce, [
+    { min: 8, points: 10 },
+    { min: 12, points: 20 },
+    { min: 18, points: 30 },
+  ]);
+  const moatGrowthScore = scoreFromThresholds(salesCagr5, [
+    { min: 5, points: 8 },
+    { min: 10, points: 15 },
+    { min: 15, points: 20 },
+  ]);
+  const moatMarginStabilityScore = scoreFromInverseThresholds(marginVolatility, [
+    { max: 8, points: 8 },
+    { max: 6, points: 12 },
+    { max: 4, points: 18 },
+  ]);
+  const moatLeverageScore = scoreFromInverseThresholds(latestDebtToEquity, [
+    { max: 1.2, points: 8 },
+    { max: 0.8, points: 12 },
+    { max: 0.4, points: 16 },
+  ]);
+  const moatScore = moatRoceScore + moatGrowthScore + moatMarginStabilityScore + moatLeverageScore;
+  moatScoreEl.textContent = formatScore(moatScore, 84);
+
+  renderMetricList(moatBreakdownEl, [
+    { label: "Avg ROCE", value: formatPercent(avgRoce) },
+    { label: "ROCE Volatility", value: formatPercent(roceVolatility) },
+    { label: "Sales CAGR (5Y)", value: formatPercent(salesCagr5) },
+    { label: "Margin Volatility", value: formatPercent(marginVolatility) },
+    { label: "Debt-to-Equity (Latest)", value: formatRatio(latestDebtToEquity) },
+  ]);
+
+  const grossCapexSeries = data.cashFlow.cfi.map((cfi) => (Number.isFinite(cfi) ? Math.max(-cfi, 0) : null));
+  const maintenanceCapexSeries = grossCapexSeries.map((grossCapex, index) => {
+    const depreciation = data.metrics.depreciation[index];
+    if (!Number.isFinite(grossCapex) || !Number.isFinite(depreciation)) return null;
+    return Math.min(grossCapex, Math.max(depreciation, 0));
+  });
+  const growthCapexSeries = grossCapexSeries.map((grossCapex, index) => {
+    const maintenance = maintenanceCapexSeries[index];
+    if (!Number.isFinite(grossCapex) || !Number.isFinite(maintenance)) return null;
+    return Math.max(grossCapex - maintenance, 0);
+  });
+  const latestGrossCapex = getLatestValue(grossCapexSeries);
+  const latestMaintenanceCapex = getLatestValue(maintenanceCapexSeries);
+  const latestGrowthCapex = getLatestValue(growthCapexSeries);
+  const maintenanceShare = calculateMargin(latestMaintenanceCapex, latestGrossCapex);
+  const growthShare = calculateMargin(latestGrowthCapex, latestGrossCapex);
+
+  renderMetricList(capexSplitEl, [
+    { label: "Gross Capex (Latest)", value: formatNumber(latestGrossCapex) },
+    { label: "Maintenance Capex (Proxy)", value: formatNumber(latestMaintenanceCapex) },
+    { label: "Growth Capex (Proxy)", value: formatNumber(latestGrowthCapex) },
+    { label: "Maintenance Share", value: formatPercent(maintenanceShare) },
+    { label: "Growth Share", value: formatPercent(growthShare) },
+  ]);
+
+  const nopatSeries = data.metrics.pbt.map((pbt, index) => {
+    const tax = data.metrics.tax[index];
+    if (!Number.isFinite(pbt) && !Number.isFinite(tax)) return null;
+    return (pbt ?? 0) - (tax ?? 0);
+  });
+  const incrementalRoic3y = calculateIncrementalRatio(nopatSeries, capitalEmployedSeries, 3);
+  const incrementalRoic5y = calculateIncrementalRatio(nopatSeries, capitalEmployedSeries, 5);
+  const reinvestmentRate = calculateRatio(getLatestValue(growthCapexSeries), getLatestValue(data.metrics.netProfit));
+
+  renderMetricList(incrementalRoicEl, [
+    {
+      label: "Incremental ROIC (3Y)",
+      value: formatPercent(Number.isFinite(incrementalRoic3y) ? incrementalRoic3y * 100 : null),
+    },
+    {
+      label: "Incremental ROIC (5Y)",
+      value: formatPercent(Number.isFinite(incrementalRoic5y) ? incrementalRoic5y * 100 : null),
+    },
+    {
+      label: "Growth Reinvestment Rate",
+      value: formatPercent(Number.isFinite(reinvestmentRate) ? reinvestmentRate * 100 : null),
+    },
+  ]);
+
+  const cfoSeries = data.cashFlow.cfo;
+  const cashConversion = calculateRatio(getLatestValue(cfoSeries), getLatestValue(data.metrics.netProfit));
+  const dividendPayout = calculateRatio(getLatestValue(data.metrics.dividend), getLatestValue(data.metrics.netProfit));
+  const balanceSheetDiscipline = scoreFromInverseThresholds(latestDebtToEquity, [
+    { max: 1.2, points: 10 },
+    { max: 0.8, points: 15 },
+    { max: 0.4, points: 20 },
+  ]);
+  const reinvestmentScore = scoreFromThresholds(Number.isFinite(incrementalRoic3y) ? incrementalRoic3y * 100 : null, [
+    { min: 8, points: 10 },
+    { min: 12, points: 15 },
+    { min: 18, points: 20 },
+  ]);
+  const cashConversionScore = scoreFromThresholds(cashConversion, [
+    { min: 0.7, points: 10 },
+    { min: 1, points: 15 },
+    { min: 1.2, points: 20 },
+  ]);
+  const payoutBalanceScore = Number.isFinite(dividendPayout)
+    ? (dividendPayout >= 0.1 && dividendPayout <= 0.6 ? 20 : 10)
+    : 0;
+  const capitalAllocationScore = reinvestmentScore + cashConversionScore + balanceSheetDiscipline + payoutBalanceScore;
+  capitalAllocationScoreEl.textContent = formatScore(capitalAllocationScore, 80);
+
+  renderMetricList(capitalAllocationBreakdownEl, [
+    { label: "Cash Conversion (CFO/Profit)", value: formatRatio(cashConversion) },
+    {
+      label: "Dividend Payout (Latest)",
+      value: formatPercent(Number.isFinite(dividendPayout) ? dividendPayout * 100 : null),
+    },
+    { label: "Debt-to-Equity (Latest)", value: formatRatio(latestDebtToEquity) },
+    {
+      label: "Reinvestment Efficiency",
+      value: formatPercent(Number.isFinite(incrementalRoic3y) ? incrementalRoic3y * 100 : null),
+    },
+  ]);
+
+  const medianMargin = getMedian(marginSeries);
+  const medianRoce = getMedian(roceSeries);
+  const marginExpansion = (() => {
+    const points = getSeriesFirstAndLast(marginSeries);
+    if (!points) return null;
+    return points.last - points.first;
+  })();
+  const leverageTrend = (() => {
+    const points = getSeriesFirstAndLast(debtToEquitySeries);
+    if (!points) return null;
+    return points.last - points.first;
+  })();
+
+  renderMetricList(valueDriversEl, [
+    { label: "Growth Driver (Sales CAGR 5Y)", value: formatPercent(salesCagr5) },
+    { label: "Margin Structure (Median NPM)", value: formatPercent(medianMargin) },
+    { label: "Return Structure (Median ROCE)", value: formatPercent(medianRoce) },
+    { label: "Margin Expansion Trend", value: formatPercent(marginExpansion) },
+    { label: "Leverage Trend", value: formatRatio(leverageTrend) },
+  ]);
+
+  const rmToSalesSeries = data.metrics.rawMaterial.map((rawMaterial, index) =>
+    calculateMargin(rawMaterial, data.metrics.sales[index])
+  );
+  const latestRmRatio = getLatestValue(rmToSalesSeries);
+  const avgRmRatio = getAverage(rmToSalesSeries);
+  const rmTrend = (() => {
+    const points = getSeriesFirstAndLast(rmToSalesSeries);
+    if (!points) return null;
+    return points.last - points.first;
+  })();
+  const stressMargin = Number.isFinite(latestRmRatio)
+    ? latestRmRatio * 1.1
+    : null;
+
+  renderMetricList(rawMaterialSensitivityEl, [
+    { label: "Raw Material / Sales (Latest)", value: formatPercent(latestRmRatio) },
+    { label: "Raw Material / Sales (Average)", value: formatPercent(avgRmRatio) },
+    { label: "Raw Material Trend", value: formatPercent(rmTrend) },
+    { label: "+10% RM Shock (proxy ratio)", value: formatPercent(stressMargin) },
+  ]);
+
+  const valueMigrationLabel = (() => {
+    if (!Number.isFinite(marginExpansion) || !Number.isFinite(leverageTrend) || !Number.isFinite(avgRoce)) return "-";
+    if (marginExpansion > 1 && leverageTrend <= 0 && avgRoce >= 15) return "Value Accretive";
+    if (marginExpansion >= 0 && leverageTrend <= 0.2 && avgRoce >= 10) return "Neutral";
+    return "Value Dilutive";
+  })();
+  const marketCapPerProfit = calculateRatio(data.meta.marketCap, getLatestValue(data.metrics.netProfit));
+
+  renderMetricList(valueMigrationEl, [
+    { label: "Migration Assessment", value: valueMigrationLabel },
+    { label: "Margin Expansion", value: formatPercent(marginExpansion) },
+    { label: "Leverage Drift", value: formatRatio(leverageTrend) },
+    { label: "Market Cap / Profit", value: formatRatio(marketCapPerProfit) },
+  ]);
+
+  const growthQualityScore = scoreFromThresholds(salesCagr5, [
+    { min: 5, points: 10 },
+    { min: 10, points: 20 },
+    { min: 15, points: 25 },
+  ]);
+  const returnQualityScore = scoreFromThresholds(avgRoce, [
+    { min: 8, points: 10 },
+    { min: 12, points: 20 },
+    { min: 18, points: 25 },
+  ]);
+  const cashQualityScore = scoreFromThresholds(cashConversion, [
+    { min: 0.7, points: 10 },
+    { min: 1, points: 20 },
+    { min: 1.2, points: 25 },
+  ]);
+  const balanceSheetQualityScore = scoreFromInverseThresholds(latestDebtToEquity, [
+    { max: 1.2, points: 10 },
+    { max: 0.8, points: 20 },
+    { max: 0.4, points: 25 },
+  ]);
+  const qualityScore = clamp(
+    growthQualityScore + returnQualityScore + cashQualityScore + balanceSheetQualityScore,
+    0,
+    100
+  );
+  qualityScoreEl.textContent = formatScore(qualityScore, 100);
+
+  renderMetricList(qualityBreakdownEl, [
+    { label: "Growth Quality", value: `${growthQualityScore}/25` },
+    { label: "Return Quality", value: `${returnQualityScore}/25` },
+    { label: "Cash Quality", value: `${cashQualityScore}/25` },
+    { label: "Balance Sheet Quality", value: `${balanceSheetQualityScore}/25` },
+  ]);
+};
+
 const validateWorkbook = (workbook) => {
   const sheetNames = workbook.SheetNames;
   const missing = REQUIRED_SHEETS.filter((sheet) => !sheetNames.includes(sheet));
@@ -585,6 +897,7 @@ const handleFile = async (file) => {
     buildCFTable(parsed);
     buildAnalysis(parsed);
     buildCharts(parsed);
+    buildFrameworks(parsed);
   } catch (error) {
     uploadStatus.textContent = "Could not parse Excel file. Please ensure it's a screener.in export.";
     console.error(error);
