@@ -46,49 +46,6 @@ const TAB_PANELS = document.querySelectorAll(".tab-panel");
 
 const REQUIRED_SHEETS = ["Data Sheet", "Profit & Loss", "Balance Sheet", "Cash Flow"];
 
-const ROWS = {
-  companyName: 0,
-  faceValue: 6,
-  currentPrice: 7,
-  marketCap: 8,
-  reportDates: 15,
-  sales: 16,
-  rawMaterial: 17,
-  inventoryChange: 18,
-  powerFuel: 19,
-  otherMfg: 20,
-  employeeCost: 21,
-  sellingAdmin: 22,
-  otherExpenses: 23,
-  otherIncome: 24,
-  depreciation: 25,
-  interest: 26,
-  pbt: 27,
-  tax: 28,
-  netProfit: 29,
-  dividend: 30,
-  bsDates: 55,
-  equity: 56,
-  reserves: 57,
-  borrowings: 58,
-  otherLiabilities: 59,
-  totalLiabilities: 60,
-  netBlock: 61,
-  cwip: 62,
-  investments: 63,
-  otherAssets: 64,
-  totalAssets: 65,
-  receivables: 66,
-  inventory: 67,
-  cash: 68,
-  shares: 69,
-  cfDates: 80,
-  cfo: 81,
-  cfi: 82,
-  cff: 83,
-  netCash: 84,
-};
-
 const safeNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -107,6 +64,57 @@ const formatPercent = (value) => {
 const getRowSlice = (rows, index) => {
   if (!rows[index]) return [];
   return rows[index].slice(4);
+};
+
+const normalizeLabel = (value) => String(value ?? "")
+  .toLowerCase()
+  .replace(/[^a-z0-9]/g, "");
+
+const findRowIndex = (rows, candidates, start = 0, end = rows.length, occurrence = 1) => {
+  const normalizedCandidates = candidates.map(normalizeLabel);
+  let matched = 0;
+  for (let i = start; i < Math.min(end, rows.length); i += 1) {
+    const rowLabel = normalizeLabel(rows[i]?.[0]);
+    if (!rowLabel) continue;
+    if (normalizedCandidates.some((candidate) => rowLabel.includes(candidate))) {
+      matched += 1;
+      if (matched === occurrence) return i;
+    }
+  }
+  return -1;
+};
+
+const getValueByLabel = (rows, candidates, defaultValue = null, start = 0, end = rows.length, occurrence = 1) => {
+  const index = findRowIndex(rows, candidates, start, end, occurrence);
+  if (index < 0) return defaultValue;
+  return rows[index]?.[1] ?? defaultValue;
+};
+
+const getSeriesByLabel = (rows, candidates, start = 0, end = rows.length, occurrence = 1) => {
+  const index = findRowIndex(rows, candidates, start, end, occurrence);
+  return index >= 0 ? getRowSlice(rows, index) : [];
+};
+
+const formatReportDate = (value) => {
+  if (value === null || value === undefined || value === "") return "-";
+
+  if (Number.isFinite(value)) {
+    const parsed = XLSX?.SSF?.parse_date_code?.(value);
+    if (parsed?.y) return String(parsed.y);
+    return String(value);
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+      const parsed = XLSX?.SSF?.parse_date_code?.(Number(trimmed));
+      if (parsed?.y) return String(parsed.y);
+    }
+    const yearMatch = trimmed.match(/\b(19|20)\d{2}\b/);
+    return yearMatch ? yearMatch[0] : trimmed;
+  }
+
+  return String(value);
 };
 
 const calculateMargin = (numerator, denominator) => {
@@ -278,57 +286,70 @@ const renderTable = (container, headers, rows) => {
 const parseDataSheet = (sheet) => {
   const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
 
+  const plStart = findRowIndex(rows, ["profitloss"]);
+  const quartersStart = findRowIndex(rows, ["quarters"], plStart + 1);
+  const bsStart = findRowIndex(rows, ["balancesheet"], (quartersStart >= 0 ? quartersStart + 1 : plStart + 1));
+  const cfStart = findRowIndex(rows, ["cashflow"], (bsStart >= 0 ? bsStart + 1 : 0));
+
+  const metaEnd = plStart > 0 ? plStart : rows.length;
+  const plEnd = quartersStart > 0 ? quartersStart : (bsStart > 0 ? bsStart : rows.length);
+  const bsEnd = cfStart > 0 ? cfStart : rows.length;
+  const cfEnd = rows.length;
+
   const meta = {
-    name: rows[ROWS.companyName]?.[1] ?? "N/A",
-    faceValue: safeNumber(rows[ROWS.faceValue]?.[1]),
-    currentPrice: safeNumber(rows[ROWS.currentPrice]?.[1]),
-    marketCap: safeNumber(rows[ROWS.marketCap]?.[1]),
+    name: getValueByLabel(rows, ["companyname"], "N/A", 0, metaEnd),
+    faceValue: safeNumber(getValueByLabel(rows, ["facevalue"], null, 0, metaEnd)),
+    currentPrice: safeNumber(getValueByLabel(rows, ["currentprice"], null, 0, metaEnd)),
+    marketCap: safeNumber(getValueByLabel(rows, ["marketcapitalization", "marketcap"], null, 0, metaEnd)),
   };
 
-  const dates = getRowSlice(rows, ROWS.reportDates).map((date) => date ?? "-");
+  const dates = getSeriesByLabel(rows, ["reportdate"], plStart, plEnd).map(formatReportDate);
 
   const metrics = {
-    sales: getRowSlice(rows, ROWS.sales).map(safeNumber),
-    rawMaterial: getRowSlice(rows, ROWS.rawMaterial).map(safeNumber),
-    inventoryChange: getRowSlice(rows, ROWS.inventoryChange).map(safeNumber),
-    powerFuel: getRowSlice(rows, ROWS.powerFuel).map(safeNumber),
-    otherMfg: getRowSlice(rows, ROWS.otherMfg).map(safeNumber),
-    employeeCost: getRowSlice(rows, ROWS.employeeCost).map(safeNumber),
-    sellingAdmin: getRowSlice(rows, ROWS.sellingAdmin).map(safeNumber),
-    otherExpenses: getRowSlice(rows, ROWS.otherExpenses).map(safeNumber),
-    otherIncome: getRowSlice(rows, ROWS.otherIncome).map(safeNumber),
-    depreciation: getRowSlice(rows, ROWS.depreciation).map(safeNumber),
-    interest: getRowSlice(rows, ROWS.interest).map(safeNumber),
-    pbt: getRowSlice(rows, ROWS.pbt).map(safeNumber),
-    tax: getRowSlice(rows, ROWS.tax).map(safeNumber),
-    netProfit: getRowSlice(rows, ROWS.netProfit).map(safeNumber),
-    dividend: getRowSlice(rows, ROWS.dividend).map(safeNumber),
+    sales: getSeriesByLabel(rows, ["sales"], plStart, plEnd).map(safeNumber),
+    rawMaterial: getSeriesByLabel(rows, ["rawmaterialcost"], plStart, plEnd).map(safeNumber),
+    inventoryChange: getSeriesByLabel(rows, ["changeininventory"], plStart, plEnd).map(safeNumber),
+    powerFuel: getSeriesByLabel(rows, ["powerandfuel", "powerfuel"], plStart, plEnd).map(safeNumber),
+    otherMfg: getSeriesByLabel(rows, ["othermfrexp", "othermanufacturing"], plStart, plEnd).map(safeNumber),
+    employeeCost: getSeriesByLabel(rows, ["employeecost"], plStart, plEnd).map(safeNumber),
+    sellingAdmin: getSeriesByLabel(rows, ["sellingandadmin", "sellingadmin"], plStart, plEnd).map(safeNumber),
+    otherExpenses: getSeriesByLabel(rows, ["otherexpenses"], plStart, plEnd).map(safeNumber),
+    otherIncome: getSeriesByLabel(rows, ["otherincome"], plStart, plEnd).map(safeNumber),
+    depreciation: getSeriesByLabel(rows, ["depreciation"], plStart, plEnd).map(safeNumber),
+    interest: getSeriesByLabel(rows, ["interest"], plStart, plEnd).map(safeNumber),
+    pbt: getSeriesByLabel(rows, ["profitbeforetax"], plStart, plEnd).map(safeNumber),
+    tax: getSeriesByLabel(rows, ["tax"], plStart, plEnd).map(safeNumber),
+    netProfit: getSeriesByLabel(rows, ["netprofit"], plStart, plEnd).map(safeNumber),
+    dividend: getSeriesByLabel(rows, ["dividendamount", "dividend"], plStart, plEnd).map(safeNumber),
   };
 
-  const balanceSheetDates = getRowSlice(rows, ROWS.bsDates).map((date) => date ?? "-");
+  const balanceSheetDates = getSeriesByLabel(rows, ["reportdate"], bsStart, bsEnd).map(formatReportDate);
   const balanceSheet = {
-    equity: getRowSlice(rows, ROWS.equity).map(safeNumber),
-    reserves: getRowSlice(rows, ROWS.reserves).map(safeNumber),
-    borrowings: getRowSlice(rows, ROWS.borrowings).map(safeNumber),
-    otherLiabilities: getRowSlice(rows, ROWS.otherLiabilities).map(safeNumber),
-    totalLiabilities: getRowSlice(rows, ROWS.totalLiabilities).map(safeNumber),
-    netBlock: getRowSlice(rows, ROWS.netBlock).map(safeNumber),
-    cwip: getRowSlice(rows, ROWS.cwip).map(safeNumber),
-    investments: getRowSlice(rows, ROWS.investments).map(safeNumber),
-    otherAssets: getRowSlice(rows, ROWS.otherAssets).map(safeNumber),
-    totalAssets: getRowSlice(rows, ROWS.totalAssets).map(safeNumber),
-    receivables: getRowSlice(rows, ROWS.receivables).map(safeNumber),
-    inventory: getRowSlice(rows, ROWS.inventory).map(safeNumber),
-    cash: getRowSlice(rows, ROWS.cash).map(safeNumber),
-    shares: getRowSlice(rows, ROWS.shares).map(safeNumber),
+    equity: getSeriesByLabel(rows, ["equitysharecapital"], bsStart, bsEnd).map(safeNumber),
+    reserves: getSeriesByLabel(rows, ["reserves"], bsStart, bsEnd).map(safeNumber),
+    borrowings: getSeriesByLabel(rows, ["borrowings"], bsStart, bsEnd).map(safeNumber),
+    otherLiabilities: getSeriesByLabel(rows, ["otherliabilities"], bsStart, bsEnd).map(safeNumber),
+    totalLiabilities: getSeriesByLabel(rows, ["total"], bsStart, bsEnd, 1).map(safeNumber),
+    netBlock: getSeriesByLabel(rows, ["netblock"], bsStart, bsEnd).map(safeNumber),
+    cwip: getSeriesByLabel(rows, ["capitalworkinprogress", "cwip"], bsStart, bsEnd).map(safeNumber),
+    investments: getSeriesByLabel(rows, ["investments"], bsStart, bsEnd).map(safeNumber),
+    otherAssets: getSeriesByLabel(rows, ["otherassets"], bsStart, bsEnd).map(safeNumber),
+    totalAssets: getSeriesByLabel(rows, ["total"], bsStart, bsEnd, 2).map(safeNumber),
+    receivables: getSeriesByLabel(rows, ["receivables"], bsStart, bsEnd).map(safeNumber),
+    inventory: getSeriesByLabel(rows, ["inventory"], bsStart, bsEnd).map(safeNumber),
+    cash: getSeriesByLabel(rows, ["cashbank", "cashandbank"], bsStart, bsEnd).map(safeNumber),
+    shares: getSeriesByLabel(rows, ["noofequityshares"], bsStart, bsEnd).map(safeNumber),
   };
+  if (!balanceSheet.totalAssets.length && balanceSheet.totalLiabilities.length) {
+    balanceSheet.totalAssets = [...balanceSheet.totalLiabilities];
+  }
 
-  const cashFlowDates = getRowSlice(rows, ROWS.cfDates).map((date) => date ?? "-");
+  const cashFlowDates = getSeriesByLabel(rows, ["reportdate"], cfStart, cfEnd).map(formatReportDate);
   const cashFlow = {
-    cfo: getRowSlice(rows, ROWS.cfo).map(safeNumber),
-    cfi: getRowSlice(rows, ROWS.cfi).map(safeNumber),
-    cff: getRowSlice(rows, ROWS.cff).map(safeNumber),
-    netCash: getRowSlice(rows, ROWS.netCash).map(safeNumber),
+    cfo: getSeriesByLabel(rows, ["cashfromoperatingactivity"], cfStart, cfEnd).map(safeNumber),
+    cfi: getSeriesByLabel(rows, ["cashfrominvestingactivity"], cfStart, cfEnd).map(safeNumber),
+    cff: getSeriesByLabel(rows, ["cashfromfinancingactivity"], cfStart, cfEnd).map(safeNumber),
+    netCash: getSeriesByLabel(rows, ["netcashflow"], cfStart, cfEnd).map(safeNumber),
   };
 
   return { meta, dates, metrics, balanceSheetDates, balanceSheet, cashFlowDates, cashFlow };
