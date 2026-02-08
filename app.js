@@ -65,7 +65,23 @@ function parseExcelData(workbook) {
     
     // Extract annual data
     const reportDates = (raw[15] || []).slice(4).filter(d => d);
-    const years = reportDates.map(d => new Date(d).getFullYear());
+    
+    // Handle Excel date parsing (Excel stores dates as serial numbers)
+    const years = reportDates.map(d => {
+        if (typeof d === 'number') {
+            // Excel serial date (days since 1900-01-01)
+            const excelEpoch = new Date(1900, 0, 1);
+            const date = new Date(excelEpoch.getTime() + (d - 2) * 86400000);
+            return date.getFullYear();
+        } else if (d instanceof Date) {
+            return d.getFullYear();
+        } else if (typeof d === 'string') {
+            // Try to parse string date
+            const parsed = new Date(d);
+            return isNaN(parsed.getTime()) ? 1970 : parsed.getFullYear();
+        }
+        return 1970; // Fallback
+    });
     
     const annual = {
         years: years,
@@ -1431,7 +1447,16 @@ function displayQuarterlyAnalysis() {
     }
     
     const quarters = qtrDates.map(d => {
-        const date = new Date(d);
+        let date;
+        if (typeof d === 'number') {
+            // Excel serial date
+            const excelEpoch = new Date(1900, 0, 1);
+            date = new Date(excelEpoch.getTime() + (d - 2) * 86400000);
+        } else if (d instanceof Date) {
+            date = d;
+        } else {
+            date = new Date(d);
+        }
         const month = date.getMonth();
         const year = date.getFullYear();
         const qtr = Math.floor(month / 3) + 1;
