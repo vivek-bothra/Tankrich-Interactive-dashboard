@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tankrich Fundamental Analysis Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <h1>Tankrich Fundamental Analysis Dashboard</h1>
+      <p class="subtitle">Upload a screener.in Excel export to begin the analysis.</p>
+    </div>
+    <div class="upload-panel">
+      <label class="upload-button" for="fileInput">Upload Excel (.xlsx)</label>
+      <input id="fileInput" type="file" accept=".xlsx" />
+      <p id="uploadStatus" class="status-text">No file uploaded.</p>
+    </div>
+  </header>
+
+  <section class="key-metrics" id="keyMetrics">
+    <div class="metric">
+      <span class="label">Company</span>
+      <span class="value" id="companyName">-</span>
+    </div>
+    <div class="metric">
+      <span class="label">Current Price</span>
+      <span class="value" id="currentPrice">-</span>
+    </div>
+    <div class="metric">
+      <span class="label">Market Cap</span>
+      <span class="value" id="marketCap">-</span>
+    </div>
+    <div class="metric">
+      <span class="label">Latest Year</span>
+      <span class="value" id="latestYear">-</span>
+    </div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab-button active" data-tab="overview">Overview</button>
+    <button class="tab-button" data-tab="statements">Financial Statements</button>
+    <button class="tab-button" data-tab="analysis">Analysis</button>
+    <button class="tab-button" data-tab="charts">Charts</button>
+    <button class="tab-button" data-tab="frameworks">Advanced Frameworks</button>
+  </nav>
+
+  <main class="tab-content">
+    <section id="overview" class="tab-panel active">
+      <div class="card">
+        <h2>Company Overview</h2>
+        <div class="overview-grid">
+          <div>
+            <span class="label">Company Name</span>
+            <span class="value" id="overviewName">-</span>
+          </div>
+          <div>
+            <span class="label">Face Value</span>
+            <span class="value" id="faceValue">-</span>
+          </div>
+          <div>
+            <span class="label">Latest Financial Year</span>
+            <span class="value" id="overviewLatest">-</span>
+          </div>
+          <div>
+            <span class="label">Data Coverage</span>
+            <span class="value" id="dataCoverage">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Highlights</h2>
+        <div id="highlights" class="highlights">
+          <p>Upload a file to see key metrics.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Growth &amp; Return Snapshot</h2>
+        <div id="snapshotMetrics" class="snapshot-grid">
+          <div class="snapshot">
+            <span class="label">Sales CAGR (5Y)</span>
+            <span class="value" id="salesCagr">-</span>
+          </div>
+          <div class="snapshot">
+            <span class="label">Profit CAGR (5Y)</span>
+            <span class="value" id="profitCagr">-</span>
+          </div>
+          <div class="snapshot">
+            <span class="label">ROE (Latest)</span>
+            <span class="value" id="roeLatest">-</span>
+          </div>
+          <div class="snapshot">
+            <span class="label">ROCE (Latest)</span>
+            <span class="value" id="roceLatest">-</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="statements" class="tab-panel">
+      <div class="card">
+        <h2>Profit &amp; Loss (Annual)</h2>
+        <div class="table-wrap" id="plTable"></div>
+      </div>
+      <div class="card">
+        <h2>Balance Sheet (Annual)</h2>
+        <div class="table-wrap" id="bsTable"></div>
+      </div>
+      <div class="card">
+        <h2>Cash Flow (Annual)</h2>
+        <div class="table-wrap" id="cfTable"></div>
+      </div>
+    </section>
+
+    <section id="analysis" class="tab-panel">
+      <div class="card">
+        <h2>Analysis</h2>
+        <div class="analysis-grid">
+          <div class="analysis-card">
+            <h3>Growth Metrics</h3>
+            <div id="growthMetrics" class="metric-list"></div>
+          </div>
+          <div class="analysis-card">
+            <h3>Profitability Ratios</h3>
+            <div id="profitabilityMetrics" class="metric-list"></div>
+          </div>
+          <div class="analysis-card">
+            <h3>Efficiency Ratios</h3>
+            <div id="efficiencyMetrics" class="metric-list"></div>
+          </div>
+          <div class="analysis-card">
+            <h3>Leverage &amp; Solvency</h3>
+            <div id="leverageMetrics" class="metric-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="frameworks" class="tab-panel">
+      <div class="card">
+        <h2>Advanced Frameworks</h2>
+        <div class="analysis-grid">
+          <div class="analysis-card">
+            <h3>Competitive Advantage Period (CAP)</h3>
+            <div class="metric-list">
+              <div class="metric-item"><span>Estimated CAP</span><span id="capDuration">-</span></div>
+              <div class="metric-item"><span>CAP Signal</span><span id="capSignal">-</span></div>
+            </div>
+            <canvas id="capChart"></canvas>
+          </div>
+          <div class="analysis-card">
+            <h3>Earning Power Box</h3>
+            <div class="metric-list">
+              <div class="metric-item"><span>PAT CAGR (3Y)</span><span id="epbCagr">-</span></div>
+              <div class="metric-item"><span>CFO / PAT</span><span id="epbCash">-</span></div>
+              <div class="metric-item"><span>Quadrant</span><span id="epbQuadrant">-</span></div>
+            </div>
+            <canvas id="epbChart"></canvas>
+          </div>
+          <div class="analysis-card">
+            <h3>Balance Sheet Red Flags</h3>
+            <div class="metric-list" id="redFlags"></div>
+          </div>
+          <div class="analysis-card">
+            <h3>DuPont Snapshot</h3>
+            <div class="metric-list" id="dupontMetrics"></div>
+          </div>
+          <div class="analysis-card">
+            <h3>Quality Score</h3>
+            <div class="metric-list" id="qualityScore"></div>
+          </div>
+          <div class="analysis-card">
+            <h3>Buffett $1 Test (Book Value)</h3>
+            <div class="metric-list" id="buffettTest"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="charts" class="tab-panel">
+      <div class="card">
+        <h2>Charts</h2>
+        <div class="charts-grid">
+          <div class="chart-card">
+            <h3>Revenue &amp; Net Profit Trend</h3>
+            <canvas id="revenueChart"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>Margin Evolution</h3>
+            <canvas id="marginChart"></canvas>
+          </div>
+          <div class="chart-card">
+            <h3>ROE vs ROCE</h3>
+            <canvas id="returnChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
