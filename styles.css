@@ -55,7 +55,7 @@ body {
 .dashboard {
     min-height: 100vh;
     position: relative;
-    z-index: 1;
+    z-index: 10;
 }
 
 .header,
@@ -85,7 +85,7 @@ body {
 
 .logo { display: flex; align-items: center; gap: var(--space-3); }
 .logo-image { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--color-border-interactive); }
-.logo-text h1, .comparison-header h2, .company-header .company-info h2, .welcome-content h2, .card h3 {
+h1, h2, h3, h4, h5, h6, .logo-text h1, .comparison-header h2, .company-header .company-info h2, .welcome-content h2, .card h3 {
     font-family: var(--font-heading);
     letter-spacing: 0.06em;
     font-weight: 400;
@@ -180,7 +180,21 @@ label.upload-btn-large:focus-visible,
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
 }
-.card { padding: var(--space-4); }
+.card {
+    padding: var(--space-4);
+    position: relative;
+    overflow: hidden;
+}
+
+.card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--color-positive);
+}
 .statement-section { padding: var(--space-4); margin-bottom: var(--space-4); }
 .card h3 { font-size: 1.45rem; margin-bottom: var(--space-3); color: var(--color-text-primary); }
 
@@ -246,10 +260,10 @@ label.upload-btn-large:focus-visible,
 
 .welcome-screen { min-height: calc(100vh - 200px); display:grid; place-content:center; padding: var(--space-5); }
 .welcome-content {
-    max-width: 900px;
+    max-width: 760px;
     text-align: center;
     position: relative;
-    padding: 2.25rem 2rem 1.5rem;
+    padding: 4rem 3rem 3rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     background: radial-gradient(circle at center, rgba(10, 26, 56, 0.45) 0%, rgba(4, 8, 18, 0.25) 55%, transparent 100%);
@@ -261,7 +275,7 @@ label.upload-btn-large:focus-visible,
     font-size: 0.85rem;
     letter-spacing: 0.36em;
     color: var(--color-positive);
-    margin-bottom: 0.8rem;
+    margin-bottom: 1.4rem;
 }
 .welcome-content::after {
     content: '↻  UPDATED MON 23 FEB 2026 • 09:46 UTC';
@@ -270,19 +284,19 @@ label.upload-btn-large:focus-visible,
     color: var(--color-text-secondary);
     font-size: 0.9rem;
     letter-spacing: 0.18em;
-    margin-top: 1.25rem;
+    margin-top: 2rem;
 }
 .welcome-icon { display: none; }
 .welcome-content h2 {
-    font-size: clamp(3.1rem, 12vw, 8rem);
-    line-height: 0.9;
+    font-size: clamp(1.9rem, 6.2vw, 4.8rem);
+    line-height: 1;
     letter-spacing: 0.08em;
-    margin-bottom: 0.8rem;
-    background: linear-gradient(90deg, #f2f5f8 0%, #d8dde5 42%, #16f6d0 70%, #12bed4 100%);
+    margin-bottom: 1.4rem;
+    background: linear-gradient(90deg, #f2f5f8 0%, #d8dde5 45%, #00ff88 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    text-shadow: 0 0 36px rgba(0, 255, 136, 0.16);
+    text-shadow: 0 0 16px rgba(0, 255, 136, 0.12);
 }
 .features { display:grid; grid-template-columns:repeat(2,1fr); gap:var(--space-3); margin: var(--space-4) 0; text-align:left; }
 .feature .icon { color: var(--color-positive); font-weight: 700; }
