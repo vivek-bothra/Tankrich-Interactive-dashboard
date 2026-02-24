@@ -6,6 +6,73 @@ let companyData = null;
 let workbookGlobal = null;
 let comparisonCompanies = [];
 
+
+(() => {
+    const canvas = document.getElementById('space');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    const stars = [];
+    let width = 0;
+    let height = 0;
+    let rafId = 0;
+    const starCountFactor = 0.00014;
+
+    const buildStars = () => {
+        stars.length = 0;
+        const count = Math.max(80, Math.floor(width * height * starCountFactor));
+        for (let i = 0; i < count; i += 1) {
+            stars.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                r: Math.random() * 1.4 + 0.2,
+                a: Math.random() * 0.7 + 0.2,
+                tw: Math.random() * 0.02 + 0.002
+            });
+        }
+    };
+
+    const resize = () => {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        buildStars();
+    };
+
+    const draw = () => {
+        ctx.clearRect(0, 0, width, height);
+        for (const star of stars) {
+            star.a += star.tw;
+            if (star.a <= 0.15 || star.a >= 0.95) star.tw *= -1;
+            ctx.beginPath();
+            ctx.fillStyle = `rgba(255,255,255,${star.a})`;
+            ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        rafId = window.requestAnimationFrame(draw);
+    };
+
+    const onVisibilityChange = () => {
+        if (document.hidden) {
+            window.cancelAnimationFrame(rafId);
+        } else {
+            draw();
+        }
+    };
+
+    resize();
+    draw();
+    window.addEventListener('resize', resize, { passive: true });
+    document.addEventListener('visibilitychange', onVisibilityChange);
+})();
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     const fileInput = document.getElementById('fileInput');
