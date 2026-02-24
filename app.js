@@ -7,71 +7,68 @@ let workbookGlobal = null;
 let comparisonCompanies = [];
 
 
-(() => {
-    const canvas = document.getElementById('space');
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d', { alpha: true });
-    if (!ctx) return;
-
-    const stars = [];
-    let width = 0;
-    let height = 0;
-    let rafId = 0;
-    const starCountFactor = 0.00014;
-
-    const buildStars = () => {
-        stars.length = 0;
-        const count = Math.max(80, Math.floor(width * height * starCountFactor));
-        for (let i = 0; i < count; i += 1) {
-            stars.push({
-                x: Math.random() * width,
-                y: Math.random() * height,
-                r: Math.random() * 1.4 + 0.2,
-                a: Math.random() * 0.7 + 0.2,
-                tw: Math.random() * 0.02 + 0.002
-            });
-        }
-    };
-
-    const resize = () => {
-        width = window.innerWidth;
-        height = window.innerHeight;
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.floor(width * dpr);
-        canvas.height = Math.floor(height * dpr);
-        canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        buildStars();
-    };
-
-    const draw = () => {
-        ctx.clearRect(0, 0, width, height);
-        for (const star of stars) {
-            star.a += star.tw;
-            if (star.a <= 0.15 || star.a >= 0.95) star.tw *= -1;
-            ctx.beginPath();
-            ctx.fillStyle = `rgba(255,255,255,${star.a})`;
-            ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        rafId = window.requestAnimationFrame(draw);
-    };
-
-    const onVisibilityChange = () => {
-        if (document.hidden) {
-            window.cancelAnimationFrame(rafId);
-        } else {
-            draw();
-        }
-    };
-
-    resize();
-    draw();
-    window.addEventListener('resize', resize, { passive: true });
-    document.addEventListener('visibilitychange', onVisibilityChange);
-})();
+const canvas = document.getElementById('space');
+const ctx = canvas.getContext('2d');
+let W, H, stars = [], shooters = [];
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', () => { resize(); initStars(); });
+function rand(a, b) { return a + Math.random() * (b - a); }
+function initStars() {
+  stars = [];
+  const count = Math.floor((W * H) / 3500);
+  for (let i = 0; i < count; i++) {
+    stars.push({ x: rand(0,W), y: rand(0,H), r: rand(0.3,1.8), alpha: rand(0.2,1), speed: rand(0.0002,0.001), phase: rand(0,Math.PI*2) });
+  }
+}
+initStars();
+class Shooter {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = rand(0,W*0.7); this.y = rand(0,H*0.4);
+    this.speed = rand(8,16); this.alpha = 1;
+    this.angle = rand(Math.PI/8,Math.PI/4);
+    this.vx = Math.cos(this.angle)*this.speed; this.vy = Math.sin(this.angle)*this.speed;
+    this.life = 1; this.decay = rand(0.012,0.025);
+  }
+  draw() {
+    ctx.save(); ctx.globalAlpha = this.life * 0.9;
+    const grad = ctx.createLinearGradient(this.x,this.y,this.x-this.vx*8,this.y-this.vy*8);
+    grad.addColorStop(0,'rgba(255,255,255,0.9)'); grad.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.strokeStyle = grad; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(this.x,this.y); ctx.lineTo(this.x-this.vx*8,this.y-this.vy*8);
+    ctx.stroke(); ctx.restore();
+  }
+  update() { this.x+=this.vx; this.y+=this.vy; this.life-=this.decay; return this.life>0; }
+}
+function drawNebulae() {
+  const nebulae = [
+    {x:W*0.15,y:H*0.25,r:220,c:'80,40,160'},{x:W*0.82,y:H*0.15,r:180,c:'0,80,160'},
+    {x:W*0.5,y:H*0.8,r:250,c:'0,120,80'},{x:W*0.9,y:H*0.7,r:160,c:'140,60,20'}
+  ];
+  nebulae.forEach(n => {
+    const g = ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r);
+    g.addColorStop(0,`rgba(${n.c},0.06)`); g.addColorStop(0.5,`rgba(${n.c},0.02)`); g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,Math.PI*2); ctx.fillStyle=g; ctx.fill();
+  });
+}
+let lastShooter = 0, t = 0;
+function loop(ts) {
+  t = ts*0.001; ctx.clearRect(0,0,W,H);
+  const bg = ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H));
+  bg.addColorStop(0,'#0a0e18'); bg.addColorStop(1,'#000004');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  drawNebulae();
+  stars.forEach(s => {
+    const a = s.alpha*(0.6+0.4*Math.sin(t*s.speed*1000+s.phase));
+    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(255,255,255,${a})`; ctx.fill();
+  });
+  if (ts-lastShooter > rand(1800,4000)) { shooters.push(new Shooter()); lastShooter=ts; }
+  shooters = shooters.filter(s => { s.draw(); return s.update(); });
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
