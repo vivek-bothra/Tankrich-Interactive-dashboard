@@ -277,6 +277,4 @@ If signal(s) exist, marks float detected and shows details.
   - Currency: `₹` + 2 decimals
 - Tab switching simply toggles active class.
 
----
 
-If you want, I can also prepare a **one-page cheat sheet** with just formulas (no text) for quick analyst reference.
